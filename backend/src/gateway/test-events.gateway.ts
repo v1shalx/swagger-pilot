@@ -58,21 +58,42 @@ export class TestEventsGateway implements OnGatewayConnection, OnGatewayDisconne
 
     try {
       // Emit: starting
-      client.emit('status', { phase: 'parsing', message: '🔍 Fetching and parsing Swagger spec...' });
+      client.emit("status", {
+        phase: "parsing",
+        message: "🔍 Fetching and parsing Swagger spec...",
+      });
 
       // Step 1: Parse swagger
       let spec: any;
-      try {
-        spec = await this.swaggerParser.parseSwaggerUrl(dto.swaggerUrl, dto.baseUrl);
-      } catch (err) {
-        client.emit('error', { message: `Failed to parse Swagger: ${err.message}` });
-        return;
+
+      // Manual only mode — skip swagger parsing
+      if (dto.swaggerUrl === "__manual_only__") {
+        spec = {
+          title: "Manual Tests",
+          version: "1.0",
+          baseUrl: dto.baseUrl,
+          securitySchemes: {},
+          endpoints: [],
+          openApiVersion: "3.0",
+        };
+      } else {
+        try {
+          spec = await this.swaggerParser.parseSwaggerUrl(
+            dto.swaggerUrl,
+            dto.baseUrl,
+          );
+        } catch (err) {
+          client.emit("error", {
+            message: `Failed to parse Swagger: ${err.message}`,
+          });
+          return;
+        }
       }
 
       const baseUrl = dto.baseUrl || spec.baseUrl;
 
-      client.emit('status', {
-        phase: 'parsed',
+      client.emit("status", {
+        phase: "parsed",
         message: `✅ Parsed spec: "${spec.title}" — ${spec.endpoints.length} endpoints found`,
         spec: {
           title: spec.title,
@@ -84,9 +105,10 @@ export class TestEventsGateway implements OnGatewayConnection, OnGatewayDisconne
       });
 
       // Warn if localhost URL detected and this seems to be a remote client
-      if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
-        client.emit('warning', {
-          message: '⚠️ Localhost URL detected. Make sure SwaggerPilot backend is running on the same machine as your API.',
+      if (baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1")) {
+        client.emit("warning", {
+          message:
+            "⚠️ Localhost URL detected. Make sure SwaggerPilot backend is running on the same machine as your API.",
         });
       }
 
@@ -96,15 +118,45 @@ export class TestEventsGateway implements OnGatewayConnection, OnGatewayDisconne
       const authQueryParams = this.authHandler.resolveAuthQueryParams(dto);
       const hasAuth = dto.authType !== AuthType.NONE;
 
-      client.emit('status', { phase: 'generating', message: '⚙️ Generating test cases...' });
+      client.emit("status", {
+        phase: "generating",
+        message: "⚙️ Generating test cases...",
+      });
 
       // Step 3: Generate tests
-      const testPlans = await this.testGenerator.generateAllTests(spec, hasAuth, dto.skipAiGeneration);
+      // Step 3: Generate tests
+      const testPlans = await this.testGenerator.generateAllTests(
+        spec,
+        hasAuth,
+        dto.skipAiGeneration,
+      );
+
+      // Inject custom tests BEFORE counting and running
+      if ((dto as any).customTests && (dto as any).customTestsType) {
+        try {
+          const customTests = this.customTestParser.parseFileContent(
+            (dto as any).customTests,
+            (dto as any).customTestsType,
+          );
+          testPlans.push({
+            endpoint: "custom-uploaded",
+            method: "MIXED",
+            summary: "Manual tester uploaded test cases",
+            tests: customTests,
+            skipped: false,
+          });
+        } catch (err) {
+          client.emit("warning", {
+            message: `⚠️ Custom test file error: ${err.message}`,
+          });
+        }
+      }
+
       const totalTests = this.testGenerator.countTotalTests(testPlans);
 
-      client.emit('status', {
-        phase: 'ready',
-        message: `🧪 Generated ${totalTests} tests for ${spec.endpoints.length} endpoints. Running now...`,
+      client.emit("status", {
+        phase: "ready",
+        message: `🧪 ${totalTests} tests ready. Running now...`,
         totalTests,
       });
 
@@ -115,7 +167,10 @@ export class TestEventsGateway implements OnGatewayConnection, OnGatewayDisconne
 
       for (const plan of testPlans) {
         if (!this.runningJobs.get(jobId)) {
-          client.emit('status', { phase: 'cancelled', message: 'Test run cancelled' });
+          client.emit("status", {
+            phase: "cancelled",
+            message: "Test run cancelled",
+          });
           return;
         }
 
@@ -131,7 +186,7 @@ export class TestEventsGateway implements OnGatewayConnection, OnGatewayDisconne
             (r) => {
               allResults.push(r);
               completedCount++;
-              client.emit('test-result', {
+              client.emit("test-result", {
                 ...r,
                 progress: { completed: completedCount, total: totalTests },
               });
@@ -154,8 +209,10 @@ export class TestEventsGateway implements OnGatewayConnection, OnGatewayDisconne
         this.testRunner.wasTokenExpiryDetected(),
       );
 
-      client.emit('complete', { report });
-      this.logger.log(`Test run complete for ${client.id}: ${report.passed}/${report.totalTests} passed`);
+      client.emit("complete", { report });
+      this.logger.log(
+        `Test run complete for ${client.id}: ${report.passed}/${report.totalTests} passed`,
+      );
     } catch (err) {
       this.logger.error(`Unexpected error: ${err.message}`, err.stack);
       client.emit('error', { message: `Unexpected error: ${err.message}` });
