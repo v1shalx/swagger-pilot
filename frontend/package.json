@@ -10,14 +10,17 @@
     "lint": "eslint src --ext ts,tsx"
   },
   "dependencies": {
+    "exceljs": "^4.4.0",
+    "file-saver": "^2.0.5",
+    "lucide-react": "^0.294.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.0",
-    "socket.io-client": "^4.6.0",
     "recharts": "^2.10.0",
-    "lucide-react": "^0.294.0"
+    "socket.io-client": "^4.6.0"
   },
   "devDependencies": {
+    "@types/file-saver": "^2.0.7",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
