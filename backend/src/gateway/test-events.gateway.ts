@@ -15,14 +15,17 @@ import { TestRunnerService } from '../test-runner/test-runner.service';
 import { AuthHandlerService } from '../test-runner/auth-handler.service';
 import { ReporterService } from '../reporter/reporter.service';
 import { RunTestsDto, AuthType } from '../swagger-parser/swagger-parser.dto';
+import { CustomTestParserService } from "../custom-test-parser/custom-test-parser.service";
 
 @WebSocketGateway({
   cors: {
-    origin: '*',
+    origin: "*",
   },
-  namespace: '/',
+  namespace: "/",
 })
-export class TestEventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class TestEventsGateway
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer()
   server: Server;
 
@@ -35,11 +38,12 @@ export class TestEventsGateway implements OnGatewayConnection, OnGatewayDisconne
     private readonly testRunner: TestRunnerService,
     private readonly authHandler: AuthHandlerService,
     private readonly reporter: ReporterService,
+    private readonly customTestParser: CustomTestParserService, 
   ) {}
 
   handleConnection(client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);
-    client.emit('connected', { message: 'SwaggerPilot ready' });
+    client.emit("connected", { message: "SwaggerPilot ready" });
   }
 
   handleDisconnect(client: Socket) {
@@ -47,7 +51,7 @@ export class TestEventsGateway implements OnGatewayConnection, OnGatewayDisconne
     this.runningJobs.delete(client.id);
   }
 
-  @SubscribeMessage('run-tests')
+  @SubscribeMessage("run-tests")
   async handleRunTests(
     @MessageBody() dto: RunTestsDto,
     @ConnectedSocket() client: Socket,
@@ -215,32 +219,45 @@ export class TestEventsGateway implements OnGatewayConnection, OnGatewayDisconne
       );
     } catch (err) {
       this.logger.error(`Unexpected error: ${err.message}`, err.stack);
-      client.emit('error', { message: `Unexpected error: ${err.message}` });
+      client.emit("error", { message: `Unexpected error: ${err.message}` });
     } finally {
       this.runningJobs.delete(jobId);
     }
   }
 
-  @SubscribeMessage('cancel-tests')
+  @SubscribeMessage("cancel-tests")
   handleCancelTests(@ConnectedSocket() client: Socket) {
     this.runningJobs.set(client.id, false);
-    client.emit('status', { phase: 'cancelled', message: 'Cancelling test run...' });
+    client.emit("status", {
+      phase: "cancelled",
+      message: "Cancelling test run...",
+    });
   }
 
-  @SubscribeMessage('dry-run')
+  @SubscribeMessage("dry-run")
   async handleDryRun(
     @MessageBody() dto: RunTestsDto,
     @ConnectedSocket() client: Socket,
   ) {
     try {
-      client.emit('status', { phase: 'parsing', message: '🔍 Fetching spec for dry run...' });
+      client.emit("status", {
+        phase: "parsing",
+        message: "🔍 Fetching spec for dry run...",
+      });
 
-      const spec = await this.swaggerParser.parseSwaggerUrl(dto.swaggerUrl, dto.baseUrl);
+      const spec = await this.swaggerParser.parseSwaggerUrl(
+        dto.swaggerUrl,
+        dto.baseUrl,
+      );
       const hasAuth = dto.authType !== AuthType.NONE;
-      const testPlans = await this.testGenerator.generateAllTests(spec, hasAuth, true);
+      const testPlans = await this.testGenerator.generateAllTests(
+        spec,
+        hasAuth,
+        true,
+      );
       const totalTests = this.testGenerator.countTotalTests(testPlans);
 
-      client.emit('dry-run-result', {
+      client.emit("dry-run-result", {
         title: spec.title,
         baseUrl: dto.baseUrl || spec.baseUrl,
         endpointCount: spec.endpoints.length,
@@ -253,7 +270,7 @@ export class TestEventsGateway implements OnGatewayConnection, OnGatewayDisconne
         })),
       });
     } catch (err) {
-      client.emit('error', { message: `Dry run failed: ${err.message}` });
+      client.emit("error", { message: `Dry run failed: ${err.message}` });
     }
   }
 
