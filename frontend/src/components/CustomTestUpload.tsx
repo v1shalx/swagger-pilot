@@ -1,4 +1,12 @@
 import React, { useState, useRef } from "react";
+import { 
+  FileSpreadsheet, 
+  UploadCloud, 
+  CheckCircle, 
+  X, 
+  HelpCircle,
+  AlertCircle
+} from "lucide-react";
 
 interface CustomTestUploadProps {
   onTestsLoaded: (content: string, type: "json" | "csv", count: number) => void;
@@ -76,45 +84,48 @@ export default function CustomTestUpload({
 
   return (
     <div
-      className={`bg-slate-800 rounded-xl border p-5 ${required && !loadedCount ? "border-purple-600" : "border-slate-700"}`}
+      className={`glass-panel rounded-2xl p-5 border shadow-lg relative overflow-hidden transition-all glow-card-hover ${
+        required && !loadedCount ? "border-purple-600/60" : "border-white/[0.04]"
+      }`}
     >
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold flex items-center gap-2">
-          <span>📋</span> Manual Test Cases
+      <div className="flex items-center justify-between mb-3.5">
+        <h2 className="text-xs font-bold uppercase tracking-wider text-slate-350 flex items-center gap-2">
+          <FileSpreadsheet className="h-4 w-4 text-purple-400" />
+          <span>Manual Test Cases</span>
           {required ? (
-            <span className="text-xs text-red-400 font-normal">*required</span>
+            <span className="text-[9px] text-rose-500 font-normal uppercase tracking-wider bg-rose-950/20 border border-rose-900/30 px-2 py-0.5 rounded">*required</span>
           ) : (
-            <span className="text-xs text-slate-400 font-normal">
+            <span className="text-[9px] text-slate-500 font-normal uppercase tracking-wider bg-slate-950/40 px-2 py-0.5 rounded">
               (optional)
             </span>
           )}
         </h2>
         {loadedCount > 0 && (
-          <span className="text-xs bg-purple-800/60 text-purple-300 px-2 py-0.5 rounded-full font-medium">
+          <span className="text-[9px] font-extrabold uppercase tracking-widest bg-purple-600/10 border border-purple-500/20 text-purple-400 px-2.5 py-1 rounded-lg">
             {loadedCount} tests loaded
           </span>
         )}
       </div>
 
-      {/* Loaded state */}
+      {/* Loaded state details view */}
       {fileName && loadedCount > 0 ? (
-        <div className="bg-green-900/20 border border-green-700/50 rounded-lg px-4 py-3 flex items-center justify-between">
+        <div className="bg-emerald-950/20 border border-emerald-900/40 rounded-xl px-4 py-3 flex items-center justify-between shadow">
           <div className="flex items-center gap-3">
-            <span className="text-green-400 text-lg">✅</span>
+            <CheckCircle className="h-5 w-5 text-emerald-400 flex-shrink-0" />
             <div>
-              <div className="text-sm text-green-300 font-medium">
+              <div className="text-xs text-emerald-300 font-bold font-mono">
                 {fileName}
               </div>
-              <div className="text-xs text-slate-400">
-                {loadedCount} test cases ready to run
+              <div className="text-[10px] text-slate-500 mt-1 font-medium">
+                {loadedCount} manual test cases parsed and ready.
               </div>
             </div>
           </div>
           <button
             onClick={handleClear}
-            className="text-xs text-slate-400 hover:text-red-400 transition-colors px-2 py-1 rounded hover:bg-red-900/20"
+            className="text-[9px] font-bold uppercase tracking-wider text-slate-500 hover:text-rose-400 transition-colors px-2 py-1 rounded hover:bg-rose-900/10 border border-transparent hover:border-rose-900/20"
           >
-            ✕ Remove
+            Remove File
           </button>
         </div>
       ) : (
@@ -126,21 +137,21 @@ export default function CustomTestUpload({
           onDragLeave={() => setIsDragging(false)}
           onDrop={handleDrop}
           onClick={() => fileRef.current?.click()}
-          className={`border-2 border-dashed rounded-lg px-4 py-8 text-center cursor-pointer transition-all ${
+          className={`border border-dashed rounded-xl px-4 py-6 text-center cursor-pointer transition-all ${
             isDragging
-              ? "border-blue-400 bg-blue-900/20"
+              ? "border-blue-500 bg-blue-500/5 shadow-md shadow-blue-900/5 scale-[0.99]"
               : required
-                ? "border-purple-600 hover:border-purple-400 hover:bg-purple-900/10"
-                : "border-slate-600 hover:border-slate-500 hover:bg-slate-700/30"
+                ? "border-purple-500/40 bg-purple-500/2 hover:border-purple-400 hover:bg-purple-600/5"
+                : "border-slate-800 hover:border-slate-600 hover:bg-slate-900/30"
           }`}
         >
-          <div className="text-3xl mb-2">📂</div>
-          <div className="text-sm text-slate-300 mb-1">
-            Drag & drop or{" "}
-            <span className="text-blue-400 underline">browse</span>
+          <UploadCloud className={`h-8 w-8 mx-auto mb-2.5 transition-all ${isDragging ? 'text-blue-400 animate-bounce' : 'text-slate-650'}`} />
+          <div className="text-xs text-slate-350 mb-1 font-medium">
+            Drag & drop spreadsheet or{" "}
+            <span className="text-blue-400 font-bold hover:underline">browse</span>
           </div>
-          <div className="text-xs text-slate-500">
-            Supports .xlsx · .csv · .json
+          <div className="text-[10px] text-slate-500">
+            Supports XLSX · CSV · JSON format
           </div>
           <input
             ref={fileRef}
@@ -153,36 +164,33 @@ export default function CustomTestUpload({
       )}
 
       {error && (
-        <div className="mt-2 text-xs text-red-400 bg-red-900/20 border border-red-700/40 rounded px-3 py-2">
-          ❌ {error}
+        <div className="mt-3 text-[10px] text-rose-350 bg-rose-955/10 border border-rose-900/40 rounded-xl px-3.5 py-2 flex items-center gap-2">
+          <AlertCircle className="h-4 w-4 text-rose-500 flex-shrink-0" />
+          <span>{error}</span>
         </div>
       )}
 
-      {/* Format guide */}
+      {/* Structured format details guides */}
       {!fileName && (
-        <div className="mt-3">
-          <details className="text-xs text-slate-500">
-            <summary className="cursor-pointer hover:text-slate-300 transition-colors">
-              📖 What format should the file be?
+        <div className="mt-3 pt-3 border-t border-white/[0.04]">
+          <details className="text-xs text-slate-500 group">
+            <summary className="cursor-pointer hover:text-slate-300 transition-colors flex items-center gap-1.5 font-bold text-[10px] uppercase tracking-wider outline-none select-none">
+              <HelpCircle className="h-3.5 w-3.5 text-slate-550" />
+              <span>Spreadsheet Schema Reference</span>
             </summary>
-            <div className="mt-3 space-y-3">
+            <div className="mt-3.5 space-y-3.5 animate-fadeIn">
               <div>
-                <div className="text-slate-400 font-medium mb-1">
-                  CSV / Excel columns:
-                </div>
-                <pre className="bg-slate-900 rounded px-3 py-2 text-xs text-green-300 overflow-auto">
-                  {`test_name,method,path,body,expected_status
-Invalid OTP,POST,/api/v1/auth/verify-otp,{"otp_code":"abcd"},400
-Rate limit,POST,/api/v1/auth/send-otp,{"identifier":"8010414088"},429
-Get profile,GET,/api/v1/auth/profile,,200`}
+                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">CSV Header Schema:</div>
+                <pre className="bg-[#040608] rounded-lg px-3 py-2.5 border border-white/[0.04] font-mono text-[9px] text-green-400 overflow-x-auto leading-relaxed">
+{`test_name,method,path,body,expected_status
+Invalid OTP,POST,/api/v1/otp,{"otp_code":"abcd"},400
+Get profile,GET,/api/v1/profile,,200`}
                 </pre>
               </div>
               <div>
-                <div className="text-slate-400 font-medium mb-1">
-                  JSON format:
-                </div>
-                <pre className="bg-slate-900 rounded px-3 py-2 text-xs text-green-300 overflow-auto">
-                  {`[
+                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">JSON Array Schema:</div>
+                <pre className="bg-[#040608] rounded-lg px-3 py-2.5 border border-white/[0.04] font-mono text-[9px] text-green-400 overflow-x-auto leading-relaxed">
+{`[
   {
     "testName": "Invalid OTP",
     "method": "POST",

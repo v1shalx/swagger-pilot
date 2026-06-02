@@ -118,4 +118,104 @@ Ideas to consider: SQL injection, XSS in string fields, very large payloads, Uni
       return [];
     }
   }
+
+  async analyzeReport(report: any): Promise<string> {
+    if (!this.apiKey) {
+      return '### ⚠️ Gemini API Key Not Set\nAI analysis could not be run because the `GEMINI_API_KEY` environment variable is missing on the server.';
+    }
+
+    const failedTestsSummary = (report.failedTests || [])
+      .slice(0, 15) // limit to top 15 failures to avoid token limits
+      .map(
+        (t: any) =>
+          `- **${t.method} ${t.path}** (${t.testName}): Expected ${t.expected.join(' or ')}, got ${t.actual}. Error: ${t.errorMessage || 'None'}`
+      )
+      .join('\n');
+
+    const prompt = `You are a Principal QA Intelligence Engineer and Site Reliability Engineer. 
+Analyze this API test suite report:
+
+API Title: ${report.title}
+Base URL: ${report.baseUrl}
+Total Tests Executed: ${report.totalTests}
+Passed: ${report.passed} (${report.passRate}% pass rate)
+Failed: ${report.failed}
+Errors: ${report.errors}
+Skipped: ${report.skipped}
+
+Failed Tests (Top 15):
+${failedTestsSummary || 'No failures! All tests passed successfully.'}
+
+Provide a high-density, professional QA Executive Summary in Markdown. Do not include markdown code ticks wrapper for the entire response. Structure the response with these sections:
+1. **Executive Summary**: General health overview of the API under test.
+2. **Failure Pattern Analysis**: Group common issues (e.g. auth issues, schema mismatches, server crashes) and explain why they occurred.
+3. **Actionable Recommendations**: Clear, prioritized recommendations for developers to stabilize the API.`;
+
+    try {
+      const response = await axios.post(
+        `${this.apiUrl}?key=${this.apiKey}`,
+        {
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.5,
+            maxOutputTokens: 2048,
+          },
+        },
+        { timeout: 30000 },
+      );
+
+      return response.data?.candidates?.[0]?.content?.parts?.[0]?.text || 'No response from AI.';
+    } catch (err) {
+      this.logger.error(`AI Report Analysis failed: ${err.message}`);
+      return `### ⚠️ AI Analysis Failed\nAn error occurred while generating insights: ${err.message}`;
+    }
+  }
+
+  async analyzeFailure(test: any): Promise<string> {
+    if (!this.apiKey) {
+      return '### ⚠️ Gemini API Key Not Set\nRoot cause analysis is unavailable because the `GEMINI_API_KEY` is not configured on the server.';
+    }
+
+    const prompt = `You are a Principal Software Engineer and API Security Expert. 
+Analyze this specific failed test case and diagnose the root cause:
+
+Test Name: ${test.testName}
+Category: ${test.category}
+Method: ${test.method}
+Path: ${test.path}
+Full URL: ${test.fullUrl}
+Expected Status: ${Array.isArray(test.expected) ? test.expected.join(' or ') : test.expected}
+Actual Status: ${test.actual ?? 'N/A'}
+Error Message: ${test.errorMessage || 'N/A'}
+
+Request Body:
+${JSON.stringify(test.requestBody || {}, null, 2)}
+
+Response Body:
+${JSON.stringify(test.responseBody || {}, null, 2)}
+
+Provide a concise, high-density Root Cause Diagnostics in Markdown. Do not wrap the entire response in markdown code blocks. Structure it into two clean sections:
+1. **Root Cause Analysis**: An explanation of why the test failed (e.g., input sanitization issue, missing database migration, validation rules discrepancy).
+2. **Recommended Action / Fix**: Clear, code-level fix or configuration adjustment to solve the bug.`;
+
+    try {
+      const response = await axios.post(
+        `${this.apiUrl}?key=${this.apiKey}`,
+        {
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 1024,
+          },
+        },
+        { timeout: 20000 },
+      );
+
+      return response.data?.candidates?.[0]?.content?.parts?.[0]?.text || 'No diagnostic output generated.';
+    } catch (err) {
+      this.logger.error(`AI Failure Analysis failed: ${err.message}`);
+      return `### ⚠️ AI Diagnostics Failed\nFailed to run root cause analysis: ${err.message}`;
+    }
+  }
 }
+

@@ -1,25 +1,159 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 * {
   box-sizing: border-box;
+  scroll-behavior: smooth;
 }
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  background-color: #0f172a;
-  color: #e2e8f0;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: #030712;
+  color: #f3f4f6;
+  overflow-x: hidden;
 }
 
+pre, code, .font-mono {
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+/* Futuristic Custom Thin Scrollbar */
 .scrollbar-thin::-webkit-scrollbar {
-  width: 4px;
+  width: 5px;
+  height: 5px;
 }
 .scrollbar-thin::-webkit-scrollbar-track {
-  background: #1e293b;
+  background: rgba(3, 7, 18, 0.4);
 }
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: #475569;
-  border-radius: 2px;
+  background: rgba(99, 102, 241, 0.15);
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
+}
+
+/* Premium Tech Scanline Console Effect */
+.scanlines {
+  position: relative;
+  overflow: hidden;
+}
+.scanlines::before {
+  content: " ";
+  display: block;
+  position: absolute;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+  z-index: 10;
+  background-size: 100% 3px, 3px 100%;
+  pointer-events: none;
+  opacity: 0.4;
+}
+
+/* Cyber Matrix Background Grid */
+.bg-cyber-grid {
+  background-size: 30px 30px;
+  background-image: 
+    linear-gradient(to right, rgba(99, 102, 241, 0.025) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(99, 102, 241, 0.025) 1px, transparent 1px);
+}
+
+/* Animated Spotlight Orbs */
+.bg-spotlight {
+  background: 
+    radial-gradient(circle 800px at 50% -200px, rgba(99, 102, 241, 0.15), transparent 80%),
+    radial-gradient(circle 600px at 10% 80%, rgba(168, 85, 247, 0.05), transparent 70%);
+}
+
+.bg-spotlight-success {
+  background: radial-gradient(circle 500px at 90% 10%, rgba(16, 185, 129, 0.06), transparent 85%);
+}
+
+.bg-spotlight-error {
+  background: radial-gradient(circle 500px at 10% 90%, rgba(244, 63, 94, 0.04), transparent 85%);
+}
+
+/* Glowing Border Gradients */
+.glow-card {
+  position: relative;
+  background: rgba(10, 15, 30, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glow-card-hover:hover {
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 
+    0 0 30px rgba(99, 102, 241, 0.12),
+    inset 0 0 12px rgba(99, 102, 241, 0.03);
+  transform: translateY(-2px);
+}
+
+/* Neon Active Badges */
+.badge-neon-blue {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #60a5fa;
+  text-shadow: 0 0 8px rgba(96, 165, 250, 0.4);
+}
+
+.badge-neon-purple {
+  background: rgba(168, 85, 247, 0.1);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  color: #c084fc;
+  text-shadow: 0 0 8px rgba(192, 132, 252, 0.4);
+}
+
+.badge-neon-emerald {
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+  text-shadow: 0 0 8px rgba(52, 211, 153, 0.4);
+}
+
+.badge-neon-rose {
+  background: rgba(244, 63, 94, 0.1);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  color: #fb7185;
+  text-shadow: 0 0 8px rgba(251, 113, 133, 0.4);
+}
+
+/* Glassmorphism system */
+.glass-panel {
+  background: rgba(10, 15, 30, 0.55);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.glass-panel-heavy {
+  background: rgba(7, 10, 22, 0.85);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+}
+
+/* Shimmer keyframe animation */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.05), rgba(99, 102, 241, 0.25), rgba(99, 102, 241, 0.05));
+  background-size: 200% 100%;
+  animation: shimmer 3s infinite linear;
+}
+
+/* Custom switch controller */
+.custom-switch {
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.6);
 }

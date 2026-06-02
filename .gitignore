@@ -7,21 +7,59 @@ node_modules/
 # Build outputs
 dist/
 build/
+.next/
+out/
 
 # Environment files - NEVER push these
 .env
 .env.local
 .env.production
+.env.development
+.env.test
 
 # Logs
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
 
 # Coverage
 coverage/
 .nyc_output/
+.nyc_output
+
+# Zip files - exclude all archives
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Package lock files (optional - keep if you want)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Debug
+debug.log
+debug/
 EOF

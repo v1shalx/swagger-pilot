@@ -5,9 +5,16 @@ import { TestReport, TestResult, CATEGORY_LABELS } from '../types';
 
 function safeJson(val: any): string {
   if (val === null || val === undefined) return '';
-  if (typeof val === 'string') return val;
-  try { return JSON.stringify(val, null, 2); } catch { return String(val); }
+  if (typeof val === 'string') {
+    try {
+      return JSON.stringify(JSON.parse(val));
+    } catch {
+      return val.replace(/\r?\n/g, ' ');
+    }
+  }
+  try { return JSON.stringify(val); } catch { return String(val); }
 }
+
 
 function statusLabel(status: string): string {
   switch (status) {

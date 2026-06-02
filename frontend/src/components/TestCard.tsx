@@ -1,8 +1,24 @@
 import React, { useState } from "react";
 import { TestResult, METHOD_COLORS, CATEGORY_LABELS } from "../types";
+import { 
+  CheckCircle2, 
+  XCircle, 
+  AlertTriangle, 
+  SkipForward, 
+  ChevronDown, 
+  ChevronUp, 
+  Copy, 
+  Sparkles, 
+  Clock, 
+  Globe, 
+  Cpu, 
+  ArrowRight
+} from "lucide-react";
 
 interface TestCardProps {
   result: TestResult;
+  rootCauses?: Record<string, { loading: boolean; text: string | null }>;
+  onRequestRootCause?: (testKey: string, result: TestResult) => void;
 }
 
 // Copy to clipboard helper
@@ -18,14 +34,15 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={copy}
-      className="text-xs px-2 py-0.5 rounded bg-slate-600 hover:bg-slate-500 text-slate-300 hover:text-white transition-colors flex-shrink-0"
+      className="text-[10px] flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all font-sans font-bold uppercase tracking-wider"
     >
-      {copied ? "✅ Copied" : "📋 Copy"}
+      <Copy className="h-2.5 w-2.5" />
+      <span>{copied ? "Copied" : "Copy"}</span>
     </button>
   );
 }
 
-// Formatted JSON block with copy
+// Formatted JSON block
 function JsonBlock({ data }: { data: any }) {
   const formatted =
     data === null || data === undefined
@@ -42,26 +59,64 @@ function JsonBlock({ data }: { data: any }) {
 
   if (!formatted) {
     return (
-      <div className="text-slate-500 italic text-xs px-3 py-2">— No body —</div>
+      <div className="text-slate-500 italic text-[11px] font-mono p-2 bg-slate-950/40 rounded border border-slate-900">— No body —</div>
     );
   }
 
   return (
-    <div className="relative group">
+    <div className="relative group rounded-lg overflow-hidden border border-slate-850">
       <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
         <CopyButton text={formatted} />
       </div>
-      <pre className="bg-[#0d1117] border border-slate-700 rounded-lg px-4 py-3 font-mono text-xs text-green-300 overflow-auto max-h-64 whitespace-pre-wrap break-all leading-5">
+      <pre className="bg-[#05070a] px-3 py-2 font-mono text-[11px] text-green-400 overflow-auto max-h-48 whitespace-pre-wrap break-all leading-relaxed">
         {formatted}
       </pre>
     </div>
   );
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function renderBoldText(text: string) {
+  const parts = text.split(/\*\*([^*]+)\*\*/g);
+  return parts.map((part, i) => i % 2 === 1 ? <strong key={i} className="font-bold text-white">{part}</strong> : part);
+}
+
+function MarkdownBlock({ text }: { text: string }) {
+  if (!text) return null;
+  
+  const lines = text.split('\n');
   return (
-    <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
-      {children}
+    <div className="space-y-1.5 text-xs leading-relaxed font-sans text-slate-350">
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('###')) {
+          return <h4 key={idx} className="text-xs font-bold text-white uppercase tracking-wider mt-3 mb-1">{trimmed.replace(/^###\s*/, '')}</h4>;
+        }
+        if (trimmed.startsWith('##')) {
+          return <h3 key={idx} className="text-sm font-extrabold text-blue-400 mt-4 mb-2">{trimmed.replace(/^##\s*/, '')}</h3>;
+        }
+        if (trimmed.startsWith('#')) {
+          return <h2 key={idx} className="text-base font-black text-white mt-4 mb-2">{trimmed.replace(/^#\s*/, '')}</h2>;
+        }
+        if (trimmed.startsWith('-') || trimmed.startsWith('*')) {
+          const content = trimmed.replace(/^[-*]\s*/, '');
+          return (
+            <div key={idx} className="flex gap-2 pl-1.5">
+              <span className="text-blue-500 font-bold">•</span>
+              <span>{renderBoldText(content)}</span>
+            </div>
+          );
+        }
+        if (/^\d+\./.test(trimmed)) {
+          const content = trimmed.replace(/^\d+\.\s*/, '');
+          return (
+            <div key={idx} className="flex gap-2 pl-1.5">
+              <span className="text-blue-400 font-mono font-bold">{trimmed.match(/^\d+\./)?.[0]}</span>
+              <span>{renderBoldText(content)}</span>
+            </div>
+          );
+        }
+        return <p key={idx} className="min-h-[1em]">{renderBoldText(line)}</p>;
+      })}
     </div>
   );
 }
@@ -98,356 +153,166 @@ function buildCurl(result: TestResult): string {
   return lines.join("\n");
 }
 
-function statusText(code: number | null): string {
-  if (!code) return "";
-  const map: Record<number, string> = {
-    200: "OK",
-    201: "Created",
-    204: "No Content",
-    400: "Bad Request",
-    401: "Unauthorized",
-    403: "Forbidden",
-    404: "Not Found",
-    409: "Conflict",
-    422: "Unprocessable Entity",
-    429: "Too Many Requests",
-    500: "Internal Server Error",
-  };
-  return map[code] || "";
-}
-
-export default function TestCard({ result }: TestCardProps) {
+export default function TestCard({ result, rootCauses, onRequestRootCause }: TestCardProps) {
   const [expanded, setExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<"request" | "response">("request");
 
-  const borderColor = {
-    PASS: "border-l-4 border-l-green-500 bg-green-500/5",
-    FAIL: "border-l-4 border-l-red-500 bg-red-500/5",
-    ERROR: "border-l-4 border-l-orange-500 bg-orange-500/5",
-    SKIPPED: "border-l-4 border-l-slate-500 bg-slate-500/5",
-  };
-
-  const statusPill = {
-    PASS: "bg-green-600 text-white",
-    FAIL: "bg-red-600 text-white",
-    ERROR: "bg-orange-600 text-white",
-    SKIPPED: "bg-slate-600 text-white",
+  const statusConfig = {
+    PASS: { icon: CheckCircle2, color: "text-emerald-500", bg: "bg-emerald-950/10 border-l-2 border-emerald-500", pill: "bg-emerald-500/10 text-emerald-450 border border-emerald-500/20" },
+    FAIL: { icon: XCircle, color: "text-rose-500", bg: "bg-rose-950/10 border-l-2 border-rose-500", pill: "bg-rose-500/10 text-rose-450 border border-rose-500/20" },
+    ERROR: { icon: AlertTriangle, color: "text-amber-500", bg: "bg-amber-950/10 border-l-2 border-amber-500", pill: "bg-amber-500/10 text-amber-450 border border-amber-500/20" },
+    SKIPPED: { icon: SkipForward, color: "text-slate-500", bg: "bg-slate-900/40 border-l-2 border-slate-600", pill: "bg-slate-800 text-slate-400 border border-slate-700/50" }
   };
 
   const codeColor = (code: number | null) => {
-    if (!code) return "text-slate-400";
-    if (code < 300) return "text-green-400";
+    if (!code) return "text-slate-500";
+    if (code < 300) return "text-emerald-400";
     if (code < 400) return "text-blue-400";
-    if (code < 500) return "text-yellow-400";
-    return "text-red-400";
+    if (code < 500) return "text-amber-400";
+    return "text-rose-400";
   };
 
   const curl = buildCurl(result);
-  const shortName = result.testName.replace(
-    `${result.method} ${result.path} — `,
-    "",
-  );
+  const shortName = result.testName.replace(`${result.method} ${result.path} — `, "");
+  const testKey = `${result.method}-${result.path}-${result.testName}`;
+  const rootCause = rootCauses?.[testKey];
+  const hasFailed = result.status === 'FAIL' || result.status === 'ERROR';
+
+  const cfg = statusConfig[result.status];
+  const StatusIcon = cfg.icon;
+
+  const triggerDiagnostic = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onRequestRootCause) {
+      onRequestRootCause(testKey, result);
+    }
+  };
 
   return (
-    <div
-      className={`rounded-lg mb-2 border border-slate-700/60 overflow-hidden ${borderColor[result.status]}`}
-    >
-      {/* ── HEADER ROW ── */}
-      <div
-        className="flex items-center gap-2 px-3 py-2.5 cursor-pointer hover:bg-white/5 transition-colors select-none"
+    <div className={`rounded-lg border border-slate-850 hover:border-slate-800 transition-colors overflow-hidden select-none mb-1.5 ${cfg.bg}`}>
+      {/* collapsed view */}
+      <div 
         onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-900/40 transition-colors"
       >
-        <span
-          className={`text-xs font-bold px-2 py-0.5 rounded text-white flex-shrink-0 ${METHOD_COLORS[result.method] || "bg-gray-500"}`}
-        >
+        <StatusIcon className={`h-4 w-4 flex-shrink-0 ${cfg.color}`} />
+        <span className={`text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded leading-none ${METHOD_COLORS[result.method] || 'bg-slate-700'} text-white flex-shrink-0`}>
           {result.method}
         </span>
-        <span className="font-mono text-xs text-slate-200 flex-shrink-0">
+        <span className="font-mono text-xs text-slate-200 truncate font-medium">
           {result.path}
         </span>
-        <span className="text-xs bg-slate-700/80 text-slate-300 px-1.5 py-0.5 rounded flex-shrink-0">
-          {CATEGORY_LABELS[result.category] || result.category}
+        <span className="text-[10px] text-slate-500">•</span>
+        <span className="text-xs text-slate-450 truncate flex-1 font-sans">
+          {shortName}
         </span>
-        {result.isAiGenerated && (
-          <span className="text-xs bg-purple-800/60 text-purple-300 px-1.5 py-0.5 rounded flex-shrink-0">
-            🤖 AI
+        <div className="flex items-center gap-3 ml-auto flex-shrink-0">
+          <span className="text-[10px] uppercase font-bold tracking-widest px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400">
+            {CATEGORY_LABELS[result.category] || result.category}
           </span>
-        )}
-        <span className="text-xs text-slate-400 truncate flex-1 min-w-0">
-          — {shortName}
-        </span>
-        <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
+          {result.isAiGenerated && (
+            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-950/20 text-purple-400 border border-purple-900/20 flex items-center gap-1">
+              <Cpu className="h-2.5 w-2.5" />
+              AI
+            </span>
+          )}
           {result.actual !== null && (
-            <span
-              className={`font-mono font-bold text-sm ${codeColor(result.actual)}`}
-            >
+            <span className={`font-mono text-xs font-bold ${codeColor(result.actual)}`}>
               {result.actual}
             </span>
           )}
-          <span
-            className={`text-xs px-2 py-0.5 rounded font-bold ${statusPill[result.status]}`}
-          >
-            {result.status}
-          </span>
-          <span className="text-xs text-slate-500">
+          <span className="text-[11px] font-mono text-slate-500 flex items-center gap-1">
+            <Clock className="h-3 w-3" />
             {result.responseTime}ms
           </span>
-          <span className="text-slate-500 text-xs w-3">
-            {expanded ? "▲" : "▼"}
-          </span>
+          {expanded ? <ChevronUp className="h-3.5 w-3.5 text-slate-500" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-500" />}
         </div>
       </div>
 
-      {/* ── EXPANDED PANEL ── */}
+      {/* expanded view */}
       {expanded && (
-        <div className="border-t border-slate-700/60">
-          {/* Tab bar */}
-          <div className="flex bg-slate-800/80 border-b border-slate-700/60">
-            {(["request", "response"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setActiveTab(tab);
-                }}
-                className={`px-6 py-2.5 text-xs font-bold uppercase tracking-widest transition-colors ${
-                  activeTab === tab
-                    ? "text-blue-400 border-b-2 border-blue-400 bg-slate-900/50"
-                    : "text-slate-500 hover:text-slate-300"
-                }`}
-              >
-                {tab === "request" ? "📤 Request" : "📥 Response"}
-              </button>
-            ))}
-          </div>
+        <div className="border-t border-slate-850 p-4 bg-slate-950/50 space-y-4">
+          
+          {/* Failure Alert Box */}
+          {result.errorMessage && (
+            <div className="bg-rose-950/10 border border-rose-900/50 rounded-lg p-3 flex gap-2">
+              <AlertTriangle className="h-4.5 w-4.5 text-rose-450 flex-shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase tracking-wider font-extrabold text-rose-400">Error Diagnostics</span>
+                <p className="text-xs text-rose-300 font-mono break-all">{result.errorMessage}</p>
+              </div>
+            </div>
+          )}
 
-          <div className="p-5 space-y-6 bg-slate-900/40">
-            {/* ════ REQUEST TAB ════ */}
-            {activeTab === "request" && (
-              <>
-                {/* Curl */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <SectionLabel>Curl</SectionLabel>
-                    <CopyButton text={curl} />
-                  </div>
-                  <pre className="bg-[#0d1117] border border-slate-700 rounded-lg px-4 py-3 font-mono text-xs text-green-300 overflow-auto whitespace-pre leading-5">
-                    {curl}
-                  </pre>
-                </div>
+          {/* REQUEST VS RESPONSE COMPARISON PANEL */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            
+            {/* Outgoing Request Side */}
+            <div className="space-y-3 bg-slate-900/30 p-3 rounded-lg border border-slate-850">
+              <div className="flex items-center justify-between border-b border-slate-850 pb-2">
+                <h4 className="text-[10px] uppercase font-extrabold tracking-widest text-slate-400 flex items-center gap-1.5">
+                  <Globe className="h-3.5 w-3.5 text-blue-400" />
+                  Outgoing Request Telemetry
+                </h4>
+              </div>
 
-                {/* Request URL */}
+              <div className="space-y-2 text-xs">
                 <div>
-                  <SectionLabel>Request URL</SectionLabel>
-                  <div className="flex items-center gap-3 bg-[#0d1117] border border-slate-700 rounded-lg px-4 py-3">
-                    <span
-                      className={`text-xs font-bold px-2 py-0.5 rounded text-white flex-shrink-0 ${METHOD_COLORS[result.method] || "bg-gray-500"}`}
-                    >
-                      {result.method}
-                    </span>
-                    <span className="font-mono text-sm text-blue-300 break-all flex-1">
-                      {result.fullUrl}
-                    </span>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider block mb-1">Target Resource URL</span>
+                  <div className="bg-slate-950 p-2 rounded border border-slate-900 font-mono text-[11px] break-all text-blue-400 flex items-center justify-between gap-2">
+                    <span className="truncate">{result.fullUrl}</span>
                     <CopyButton text={result.fullUrl} />
                   </div>
                 </div>
 
-                {/* Request Headers */}
                 <div>
-                  <SectionLabel>Request Headers</SectionLabel>
-                  <div className="bg-[#0d1117] border border-slate-700 rounded-lg overflow-hidden">
-                    <table className="w-full text-xs font-mono">
-                      <thead>
-                        <tr className="border-b border-slate-700/60 bg-slate-800/40">
-                          <th className="px-4 py-2 text-left text-slate-400 font-semibold w-48">
-                            Header
-                          </th>
-                          <th className="px-4 py-2 text-left text-slate-400 font-semibold">
-                            Value
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="border-b border-slate-700/30">
-                          <td className="px-4 py-2 text-purple-300">accept</td>
-                          <td className="px-4 py-2 text-green-300">*/*</td>
-                        </tr>
-                        <tr className="border-b border-slate-700/30">
-                          <td className="px-4 py-2 text-purple-300">
-                            Content-Type
-                          </td>
-                          <td className="px-4 py-2 text-green-300">
-                            application/json
-                          </td>
-                        </tr>
-                        {result.category === "auth" &&
-                        result.testName.includes("No auth") ? (
-                          <tr>
-                            <td className="px-4 py-2 text-purple-300">
-                              Authorization
-                            </td>
-                            <td className="px-4 py-2 text-slate-500 italic">
-                              — not sent (no-auth test scenario) —
-                            </td>
-                          </tr>
-                        ) : result.category === "auth" &&
-                          result.testName.includes("Invalid") ? (
-                          <tr>
-                            <td className="px-4 py-2 text-purple-300">
-                              Authorization
-                            </td>
-                            <td className="px-4 py-2 text-yellow-300">
-                              Bearer invalid_token_abc123xyz
-                            </td>
-                          </tr>
-                        ) : (
-                          <tr>
-                            <td className="px-4 py-2 text-purple-300">
-                              Authorization
-                            </td>
-                            <td className="px-4 py-2 text-green-300">
-                              Bearer [your-valid-token]
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider block mb-1">Request Payload (JSON Body)</span>
+                  <JsonBlock data={result.requestBody} />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">CURL Command Equivalent</span>
+                    <CopyButton text={curl} />
                   </div>
+                  <pre className="bg-[#05070a] px-3 py-2 rounded-lg border border-slate-850 font-mono text-[11px] text-slate-400 overflow-auto whitespace-pre leading-relaxed max-h-32">
+                    {curl}
+                  </pre>
                 </div>
+              </div>
+            </div>
 
-                {/* Request Body */}
-                <div>
-                  <SectionLabel>Request Body</SectionLabel>
-                  {result.requestBody !== null &&
-                  result.requestBody !== undefined ? (
-                    <JsonBlock data={result.requestBody} />
-                  ) : (
-                    <div className="bg-[#0d1117] border border-slate-700 rounded-lg px-4 py-3 text-xs text-slate-500 italic">
-                      — No request body ({result.method} request) —
-                    </div>
-                  )}
-                </div>
+            {/* Incoming Response Side */}
+            <div className="space-y-3 bg-slate-900/30 p-3 rounded-lg border border-slate-850">
+              <div className="flex items-center justify-between border-b border-slate-850 pb-2">
+                <h4 className="text-[10px] uppercase font-extrabold tracking-widest text-slate-400 flex items-center gap-1.5">
+                  <ArrowRight className="h-3.5 w-3.5 text-emerald-400" />
+                  Incoming Response Telemetry
+                </h4>
+              </div>
 
-                {/* Test Purpose */}
-                <div>
-                  <SectionLabel>Test Purpose</SectionLabel>
-                  <div className="bg-[#0d1117] border border-slate-700 rounded-lg px-4 py-3 text-xs text-slate-300 leading-relaxed">
-                    {result.description}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* ════ RESPONSE TAB ════ */}
-            {activeTab === "response" && (
-              <>
-                {/* Status code row */}
-                <div>
-                  <SectionLabel>Server Response</SectionLabel>
-                  <div className="bg-[#0d1117] border border-slate-700 rounded-lg overflow-hidden">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-slate-700/60 bg-slate-800/40">
-                          <th className="px-4 py-2 text-left text-slate-400 font-semibold">
-                            Code
-                          </th>
-                          <th className="px-4 py-2 text-left text-slate-400 font-semibold">
-                            Description
-                          </th>
-                          <th className="px-4 py-2 text-left text-slate-400 font-semibold">
-                            Result
-                          </th>
-                          <th className="px-4 py-2 text-right text-slate-400 font-semibold">
-                            Time
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="px-4 py-3">
-                            <span
-                              className={`font-mono font-bold text-2xl ${codeColor(result.actual)}`}
-                            >
-                              {result.actual ?? "N/A"}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-slate-300">
-                            {statusText(result.actual)}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span
-                              className={`text-xs px-2 py-1 rounded font-bold ${statusPill[result.status]}`}
-                            >
-                              {result.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-slate-400">
-                            {result.responseTime}ms
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Expected vs Actual */}
-                <div>
-                  <SectionLabel>Expected vs Actual</SectionLabel>
-                  <div className="bg-[#0d1117] border border-slate-700 rounded-lg overflow-hidden">
-                    <table className="w-full text-xs font-mono">
-                      <tbody>
-                        <tr className="border-b border-slate-700/30">
-                          <td className="px-4 py-2.5 text-slate-400 w-32">
-                            Expected
-                          </td>
-                          <td className="px-4 py-2.5 text-blue-300 font-bold">
-                            {result.expected.join(" or ")}
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="px-4 py-2.5 text-slate-400">Got</td>
-                          <td className="px-4 py-2.5">
-                            <span
-                              className={`font-bold text-sm ${codeColor(result.actual)}`}
-                            >
-                              {result.actual ?? "N/A"}
-                            </span>
-                            {result.status === "PASS" ? (
-                              <span className="text-green-400 ml-3">
-                                ✅ Match — test passed
-                              </span>
-                            ) : (
-                              <span className="text-red-400 ml-3">
-                                ❌ Mismatch — test failed
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Failure reason */}
-                {result.errorMessage && (
+              <div className="space-y-2 text-xs">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <SectionLabel>⚠️ Failure Reason</SectionLabel>
-                    <div className="bg-red-950/50 border border-red-800/60 rounded-lg px-4 py-3 text-xs text-red-300 leading-relaxed">
-                      {result.errorMessage}
+                    <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider block">HTTP Response Code</span>
+                    <div className="bg-slate-950 p-2 rounded border border-slate-900 font-mono text-base font-bold flex items-center gap-2">
+                      <span className={codeColor(result.actual)}>{result.actual ?? "N/A"}</span>
+                      <span className="text-xs text-slate-400 font-medium">({result.status})</span>
                     </div>
                   </div>
-                )}
-
-                {/* Response Body */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <SectionLabel>Response Body</SectionLabel>
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider block">Expected Codes</span>
+                    <div className="bg-slate-950 p-2 rounded border border-slate-900 font-mono text-base font-bold text-slate-300">
+                      {result.expected.join(" OR ")}
+                    </div>
                   </div>
-                  {result.responseBody !== null &&
-                  result.responseBody !== undefined ? (
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider block mb-1">Response Body (JSON Payload)</span>
+                  {result.responseBody !== null && result.responseBody !== undefined ? (
                     <JsonBlock data={result.responseBody} />
                   ) : (
-                    <div className="bg-[#0d1117] border border-slate-700 rounded-lg px-4 py-3 text-xs text-slate-500 italic">
+                    <div className="text-slate-550 italic text-[11px] font-mono p-2 bg-slate-950/40 rounded border border-slate-900">
                       {result.status === "PASS"
                         ? "— Response body not stored for passed tests —"
                         : "— No response body received —"}
@@ -455,42 +320,72 @@ export default function TestCard({ result }: TestCardProps) {
                   )}
                 </div>
 
-                {/* Response Headers */}
                 <div>
-                  <SectionLabel>Response Headers</SectionLabel>
-                  <div className="bg-[#0d1117] border border-slate-700 rounded-lg overflow-hidden">
-                    <table className="w-full text-xs font-mono">
-                      <thead>
-                        <tr className="border-b border-slate-700/60 bg-slate-800/40">
-                          <th className="px-4 py-2 text-left text-slate-400 font-semibold w-56">
-                            Header
-                          </th>
-                          <th className="px-4 py-2 text-left text-slate-400 font-semibold">
-                            Value
-                          </th>
-                        </tr>
-                      </thead>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider block mb-1">Standard Headers</span>
+                  <div className="bg-slate-950 rounded border border-slate-900 overflow-hidden">
+                    <table className="w-full text-[10px] font-mono text-left">
                       <tbody>
-                        {[
-                          ["content-type", "application/json; charset=utf-8"],
-                          ["access-control-allow-credentials", "true"],
-                          ["access-control-allow-origin", "*"],
-                          ["x-response-time", `${result.responseTime}ms`],
-                        ].map(([key, val]) => (
-                          <tr
-                            key={key}
-                            className="border-b border-slate-700/30 last:border-0"
-                          >
-                            <td className="px-4 py-2 text-purple-300">{key}</td>
-                            <td className="px-4 py-2 text-green-300">{val}</td>
-                          </tr>
-                        ))}
+                        <tr className="border-b border-slate-900">
+                          <td className="px-2 py-1 text-slate-500 font-bold uppercase tracking-wider w-24">Content-Type</td>
+                          <td className="px-2 py-1 text-slate-300">application/json; charset=utf-8</td>
+                        </tr>
+                        <tr>
+                          <td className="px-2 py-1 text-slate-500 font-bold uppercase tracking-wider">Latency</td>
+                          <td className="px-2 py-1 text-slate-350">{result.responseTime}ms</td>
+                        </tr>
                       </tbody>
                     </table>
                   </div>
                 </div>
-              </>
-            )}
+              </div>
+            </div>
+
+          </div>
+
+          {/* AI ROOT CAUSE DIAGNOSTICS */}
+          {hasFailed && onRequestRootCause && (
+            <div className="bg-slate-900/40 border border-slate-850 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-850 pb-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-purple-400" />
+                  <span className="text-xs font-bold text-white tracking-tight uppercase">AI Root Cause Diagnostics</span>
+                </div>
+                {!rootCause && (
+                  <button
+                    onClick={triggerDiagnostic}
+                    className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-widest px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded transition-all active:scale-[0.98] shadow-md shadow-purple-900/10"
+                  >
+                    <Cpu className="h-3 w-3" />
+                    <span>Run AI Diagnostics</span>
+                  </button>
+                )}
+              </div>
+
+              {rootCause && (
+                <div className="space-y-2">
+                  {rootCause.loading ? (
+                    <div className="space-y-2 py-2 animate-pulse">
+                      <div className="h-3 bg-slate-800 rounded w-1/3"></div>
+                      <div className="h-2 bg-slate-800 rounded w-full"></div>
+                      <div className="h-2 bg-slate-800 rounded w-5/6"></div>
+                      <div className="h-2 bg-slate-800 rounded w-4/5"></div>
+                    </div>
+                  ) : rootCause.text ? (
+                    <div className="p-3 bg-slate-950 rounded-lg border border-slate-900 font-sans leading-relaxed">
+                      <MarkdownBlock text={rootCause.text} />
+                    </div>
+                  ) : (
+                    <span className="text-xs text-slate-500">Diagnostics failed to execute.</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Test Case Purpose description */}
+          <div className="bg-slate-900/10 border border-slate-850 p-2.5 rounded-lg text-xs leading-normal">
+            <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-450 block mb-1">Validation Objective</span>
+            <span className="text-slate-350 text-[11px] font-medium leading-relaxed font-sans">{result.description}</span>
           </div>
         </div>
       )}

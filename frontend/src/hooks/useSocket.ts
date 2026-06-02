@@ -28,6 +28,9 @@ interface SocketState {
   warnings: string[];
   error: string | null;
   isConnected: boolean;
+  aiInsightsLoading: boolean;
+  aiInsights: string | null;
+  rootCauses: Record<string, { loading: boolean; text: string | null }>;
 }
 
 export function useSocket() {
@@ -44,6 +47,9 @@ export function useSocket() {
     warnings: [],
     error: null,
     isConnected: false,
+    aiInsightsLoading: false,
+    aiInsights: null,
+    rootCauses: {},
   });
 
   const connect = useCallback(() => {
@@ -122,6 +128,24 @@ export function useSocket() {
         statusMessage: `❌ Error: ${data.message}`,
       }));
     });
+
+    socket.on('ai-insights-result', (data: { insights: string }) => {
+      setState((s) => ({
+        ...s,
+        aiInsightsLoading: false,
+        aiInsights: data.insights,
+      }));
+    });
+
+    socket.on('root-cause-result', (data: { testKey: string; analysis: string }) => {
+      setState((s) => ({
+        ...s,
+        rootCauses: {
+          ...s.rootCauses,
+          [data.testKey]: { loading: false, text: data.analysis },
+        },
+      }));
+    });
   }, []);
 
   const runTests = useCallback((config: RunTestsConfig) => {
@@ -147,6 +171,9 @@ export function useSocket() {
       warnings: [],
       error: null,
       isConnected: state.isConnected,
+      aiInsightsLoading: false,
+      aiInsights: null,
+      rootCauses: {},
     });
   }, [connect, state.isConnected]);
 
@@ -178,8 +205,31 @@ export function useSocket() {
       warnings: [],
       error: null,
       isConnected: state.isConnected,
+      aiInsightsLoading: false,
+      aiInsights: null,
+      rootCauses: {},
     });
   }, [state.isConnected]);
+
+  const requestAiInsights = useCallback((report: TestReport) => {
+    if (socketRef.current?.connected) {
+      setState((s) => ({ ...s, aiInsightsLoading: true }));
+      socketRef.current.emit('request-ai-insights', report);
+    }
+  }, []);
+
+  const requestRootCause = useCallback((testKey: string, result: TestResult) => {
+    if (socketRef.current?.connected) {
+      setState((s) => ({
+        ...s,
+        rootCauses: {
+          ...s.rootCauses,
+          [testKey]: { loading: true, text: null },
+        },
+      }));
+      socketRef.current.emit('request-root-cause', { testKey, result });
+    }
+  }, []);
 
   useEffect(() => {
     connect();
@@ -188,5 +238,5 @@ export function useSocket() {
     };
   }, []);
 
-  return { state, runTests, dryRun, cancelTests, reset };
+  return { state, runTests, dryRun, cancelTests, reset, requestAiInsights, requestRootCause };
 }

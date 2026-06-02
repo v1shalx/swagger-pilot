@@ -23,11 +23,29 @@ export class SwaggerParserService {
       const response = await axios.get(swaggerUrl, {
         timeout: 15000,
         headers: { Accept: 'application/json, application/yaml, */*' },
-        validateStatus: (status) => status < 500,
+        validateStatus: (status) => status < 400, // Throw error on 4xx and 5xx status codes
       });
       rawSpec = response.data;
     } catch (err) {
-      throw new Error(`Failed to fetch Swagger URL: ${err.message}. Make sure the URL is reachable and returns a valid JSON/YAML OpenAPI spec.`);
+      let details = err.message;
+      if (err.response) {
+        const bodyStr = typeof err.response.data === 'object' ? JSON.stringify(err.response.data) : String(err.response.data);
+        details = `Status ${err.response.status} (${err.response.statusText || 'Error'}): ${bodyStr.substring(0, 150)}`;
+      }
+      throw new Error(`Failed to fetch Swagger URL: ${details}. Make sure the URL is reachable and returns a valid JSON/YAML OpenAPI spec.`);
+    }
+
+    // Validate the fetched content before parsing
+    if (typeof rawSpec === 'string') {
+      const trimmed = rawSpec.trim();
+      if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html') || trimmed.startsWith('<div')) {
+        throw new Error(`The URL returned HTML content instead of a JSON/YAML OpenAPI specification. Make sure you are using the RAW JSON/YAML spec URL (e.g. /api/docs-json or /swagger.json) and NOT the interactive Swagger UI HTML page.`);
+      }
+    } else if (typeof rawSpec === 'object' && rawSpec !== null) {
+      if (!rawSpec.openapi && !rawSpec.swagger) {
+        const keys = Object.keys(rawSpec).slice(0, 10).join(', ');
+        throw new Error(`The URL returned a JSON response, but it is not a valid OpenAPI/Swagger specification. It is missing the root "openapi" or "swagger" version field. (Found JSON keys: ${keys})`);
+      }
     }
 
     let api: any;

@@ -274,6 +274,34 @@ export class TestEventsGateway
     }
   }
 
+  @SubscribeMessage("request-ai-insights")
+  async handleRequestAiInsights(
+    @MessageBody() report: any,
+    @ConnectedSocket() client: Socket,
+  ) {
+    try {
+      this.logger.log(`Client ${client.id} requested AI report insights`);
+      const insights = await this.testGenerator.getGeminiService().analyzeReport(report);
+      client.emit("ai-insights-result", { insights });
+    } catch (err) {
+      client.emit("ai-insights-result", { insights: `### ⚠️ Error\nFailed to generate AI insights: ${err.message}` });
+    }
+  }
+
+  @SubscribeMessage("request-root-cause")
+  async handleRequestRootCause(
+    @MessageBody() data: { testKey: string; result: any },
+    @ConnectedSocket() client: Socket,
+  ) {
+    try {
+      this.logger.log(`Client ${client.id} requested AI root cause analysis for: ${data.testKey}`);
+      const analysis = await this.testGenerator.getGeminiService().analyzeFailure(data.result);
+      client.emit("root-cause-result", { testKey: data.testKey, analysis });
+    } catch (err) {
+      client.emit("root-cause-result", { testKey: data.testKey, analysis: `### ⚠️ Error\nFailed to analyze root cause: ${err.message}` });
+    }
+  }
+
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }

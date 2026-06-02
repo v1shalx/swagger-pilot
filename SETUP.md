@@ -281,3 +281,7 @@ Both must be running at the same time.
 - [ ] Frontend running (Terminal 2 shows port 5173)
 - [ ] Browser open at http://localhost:5173
 - [ ] Tested with Petstore URL first ✅
+
+
+
+	http://localhost:3003/api/docs-json	

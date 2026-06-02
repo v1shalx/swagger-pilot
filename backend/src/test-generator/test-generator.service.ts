@@ -70,4 +70,8 @@ export class TestGeneratorService {
   countTotalTests(plans: EndpointTestPlan[]): number {
     return plans.reduce((sum, plan) => sum + plan.tests.filter((t) => !t.isSkipped).length, 0);
   }
+
+  getGeminiService(): GeminiService {
+    return this.geminiService;
+  }
 }

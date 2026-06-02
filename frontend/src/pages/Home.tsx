@@ -1,6 +1,25 @@
 import React, { useState } from "react";
 import { RunTestsConfig } from "../types";
 import CustomTestUpload from "../components/CustomTestUpload";
+import { 
+  Play, 
+  Settings, 
+  ShieldAlert, 
+  Sparkles, 
+  Sliders, 
+  Globe, 
+  Lock, 
+  Eye, 
+  HelpCircle, 
+  Layers, 
+  FileCode,
+  Flame,
+  Key,
+  Shield,
+  UserCheck,
+  Zap,
+  Info
+} from "lucide-react";
 
 interface HomeProps {
   onRunTests: (config: RunTestsConfig) => void;
@@ -55,7 +74,6 @@ export default function Home({
     config.swaggerUrl.includes("localhost") ||
     config.swaggerUrl.includes("127.0.0.1");
 
-  // Validation per mode
   const canRun = () => {
     if (mode === "auto") return config.swaggerUrl.trim() !== "";
     if (mode === "manual")
@@ -88,7 +106,6 @@ export default function Home({
 
     onRunTests({
       ...config,
-      // In manual mode, swagger URL not needed
       swaggerUrl: mode === "manual" ? "__manual_only__" : config.swaggerUrl,
       customTests: customTestsContent || undefined,
       customTestsType: customTestsContent ? customTestsType : undefined,
@@ -109,407 +126,556 @@ export default function Home({
 
   const modeConfig = {
     auto: {
-      label: "⚙️ Auto Only",
-      desc: "SwaggerPilot reads your Swagger URL and auto-generates all tests",
-      color: "bg-blue-600",
+      label: "Automated Suite",
+      desc: "Instant parser generating comprehensive boundary, type, and AI validation schedules.",
+      borderColor: "border-blue-500/20",
+      activeBg: "bg-blue-600/10 border-blue-500/40 shadow-[0_0_20px_rgba(59,130,246,0.12)]",
+      accentText: "text-blue-400 font-bold",
+      icon: Layers
     },
     manual: {
-      label: "📋 Manual Only",
-      desc: "Upload your own CSV/Excel test file — no Swagger URL needed",
-      color: "bg-purple-600",
+      label: "Manual Scenarios",
+      desc: "Import spreadsheet scripts directly to execute custom test suites without specification URL.",
+      borderColor: "border-purple-500/20",
+      activeBg: "bg-purple-600/10 border-purple-500/40 shadow-[0_0_20px_rgba(168,85,247,0.12)]",
+      accentText: "text-purple-400 font-bold",
+      icon: FileCode
     },
     both: {
-      label: "🚀 Both",
-      desc: "Auto-generated tests + your uploaded manual tests together",
-      color: "bg-green-600",
+      label: "Combined Audit",
+      desc: "Merge specification-generated test cases with uploaded spreadsheets seamlessly.",
+      borderColor: "border-emerald-500/20",
+      activeBg: "bg-emerald-600/10 border-emerald-500/40 shadow-[0_0_20px_rgba(16,185,129,0.12)]",
+      accentText: "text-emerald-400 font-bold",
+      icon: Sparkles
     },
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100">
-      {/* Header */}
-      <div className="bg-slate-800 border-b border-slate-700 px-6 py-4">
-        <div className="max-w-4xl mx-auto flex items-center gap-3">
-          <div className="text-3xl">✈️</div>
-          <div>
-            <h1 className="text-2xl font-bold text-white">SwaggerPilot</h1>
-            <p className="text-slate-400 text-sm">
-              AI-Powered Automatic API Test Runner
+    <div className="min-h-screen text-slate-100 font-sans antialiased relative">
+      
+      {/* Dynamic 2026 header panel */}
+      <header className="border-b border-white/[0.04] bg-[#05070c]/50 backdrop-blur-md sticky top-0 z-40">
+        <div className="w-full px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
+              <Flame className="h-4.5 w-4.5 text-white" />
+            </div>
+            <div>
+              <span className="font-black text-xs text-white tracking-tight leading-none uppercase">SWAGGER<span className="text-blue-500">PILOT</span></span>
+              <span className="ml-2 text-[9px] uppercase font-bold tracking-widest px-2.5 py-1 rounded bg-slate-950/80 text-slate-400 border border-white/[0.04]">QA Fuzzing Console</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 bg-slate-950/60 px-3 py-1.5 rounded-lg border border-white/[0.04] shadow">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400">Secure Cluster Online</span>
+          </div>
+        </div>
+      </header>
+
+      <main className="w-full px-6 py-8 space-y-6 relative z-10">
+        
+        {/* Modern executive header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1.5">
+            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-600/10 border border-blue-500/20 text-blue-400 text-[10px] uppercase font-extrabold tracking-wider">
+              <Zap className="h-3 w-3" />
+              <span>Next-Gen API Auditing</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight leading-none">
+              Automated Spec Fuzzing & Diagnostics
+            </h1>
+            <p className="text-slate-450 text-xs font-medium">
+              Run instant functional fuzz tests, boundary error evaluations, circular reference logic validations, and AI-powered cognitive vulnerability injection.
             </p>
           </div>
         </div>
-      </div>
 
-      <div className="max-w-4xl mx-auto px-6 py-8">
-        {/* ── MODE SELECTOR ── */}
-        <div className="bg-slate-800 rounded-xl border border-slate-700 p-5 mb-6">
-          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">
-            Select Mode
-          </h2>
-          <div className="grid grid-cols-3 gap-3">
-            {(["auto", "manual", "both"] as Mode[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
-                className={`rounded-xl p-4 text-left border-2 transition-all ${
-                  mode === m
-                    ? `border-blue-500 ${modeConfig[m].color}/20 bg-opacity-20`
-                    : "border-slate-600 hover:border-slate-500 bg-slate-700/30"
-                }`}
-              >
-                <div
-                  className={`text-sm font-bold mb-1 ${mode === m ? "text-white" : "text-slate-300"}`}
-                >
-                  {modeConfig[m].label}
-                </div>
-                <div className="text-xs text-slate-400 leading-relaxed">
-                  {modeConfig[m].desc}
-                </div>
-                {mode === m && (
-                  <div
-                    className={`mt-2 text-xs px-2 py-0.5 rounded-full inline-block text-white ${modeConfig[m].color}`}
-                  >
-                    Selected ✓
-                  </div>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ── SWAGGER URL (hidden in manual mode) ── */}
+        {/* 🎯 SPEC TARGET COMMAND CENTER - DENSE TOP BAR TO PREVENT SCROLLING */}
         {(mode === "auto" || mode === "both") && (
-          <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-6">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <span>🔗</span> Swagger / OpenAPI URL
-            </h2>
-
-            <div className="flex gap-2 mb-3 flex-wrap">
-              <span className="text-xs text-slate-400 self-center">Try:</span>
-              {SAMPLE_URLS.map((s) => (
-                <button
-                  key={s.url}
-                  onClick={() => loadSample(s)}
-                  className="text-xs bg-slate-700 hover:bg-slate-600 text-blue-400 px-2 py-1 rounded transition-colors"
-                >
-                  {s.label}
-                </button>
-              ))}
+          <div className="glass-panel rounded-2xl p-5 shadow-xl relative overflow-hidden border border-white/[0.04] glow-card-hover bg-[#05070c]/35">
+            <div className="absolute top-0 right-0 w-80 h-32 bg-blue-500/5 blur-3xl rounded-full pointer-events-none" />
+            
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4 pb-4 border-b border-white/[0.04]">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-blue-600/10 border border-blue-500/20 text-blue-400 flex-shrink-0">
+                  <Globe className="h-4.5 w-4.5" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-extrabold text-white tracking-tight uppercase">
+                    1. Target API Specification Intake
+                  </h3>
+                  <p className="text-[9px] text-slate-500">
+                    Provide the OpenAPI/Swagger JSON or YAML specification URL of your endpoint.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex gap-2 items-center flex-wrap">
+                <span className="text-[9px] uppercase tracking-wider font-bold text-slate-550 mr-1">Load Preset Spec:</span>
+                {SAMPLE_URLS.map((s) => (
+                  <button
+                    key={s.url}
+                    onClick={() => loadSample(s)}
+                    className="text-[9px] uppercase font-bold tracking-wider bg-slate-900/60 hover:bg-slate-800 text-blue-450 hover:text-blue-300 px-2.5 py-1 rounded-lg transition-all font-mono border border-white/[0.05] shadow"
+                  >
+                    {s.label.includes("2.0") ? "Swagger 2.0" : "OpenAPI 3.0"}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <input
-              type="text"
-              placeholder="https://yourapi.com/api-docs or http://localhost:3000/api-json"
-              value={config.swaggerUrl}
-              onChange={(e) =>
-                setConfig((c) => ({ ...c, swaggerUrl: e.target.value }))
-              }
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono text-sm"
-            />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2">
+                <label className="text-[9px] text-slate-455 font-bold uppercase tracking-wider block mb-1.5">OpenAPI Spec URL Path</label>
+                <input
+                  type="text"
+                  placeholder="Paste spec endpoint (e.g. https://api.yoursite.com/openapi.json)"
+                  value={config.swaggerUrl}
+                  onChange={(e) =>
+                    setConfig((c) => ({ ...c, swaggerUrl: e.target.value }))
+                  }
+                  className="w-full bg-slate-950 border border-white/[0.06] rounded-xl px-4 py-2.5 text-white placeholder-slate-650 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 font-mono text-xs shadow-inner"
+                />
+              </div>
+
+              <div>
+                <label className="text-[9px] text-slate-455 font-bold uppercase tracking-wider block mb-1.5">Target Host Override Path</label>
+                <input
+                  type="text"
+                  placeholder="e.g. http://localhost:3000/v1"
+                  value={config.baseUrl}
+                  onChange={(e) =>
+                    setConfig((c) => ({ ...c, baseUrl: e.target.value }))
+                  }
+                  className="w-full bg-slate-950 border border-white/[0.06] rounded-xl px-4 py-2.5 text-white placeholder-slate-650 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 font-mono text-xs shadow-inner"
+                />
+              </div>
+            </div>
 
             {isLocalUrl && (
-              <div className="mt-2 bg-yellow-900/40 border border-yellow-700 rounded-lg px-3 py-2 text-yellow-300 text-sm">
-                ⚠️ <strong>Local URL detected.</strong> Make sure SwaggerPilot
-                backend is running on the same machine as your API.
+              <div className="mt-3 flex items-start gap-2.5 bg-amber-955/10 border border-amber-900/40 rounded-xl px-4 py-2 text-amber-300 text-[10px] shadow">
+                <ShieldAlert className="h-3.5 w-3.5 text-amber-455 flex-shrink-0 mt-0.5" />
+                <div>
+                  <strong className="font-bold">Localhost target detected:</strong> Ensure your server CORS policy permits browser access or that localhost network proxies are allowed.
+                </div>
               </div>
             )}
+          </div>
+        )}
 
-            <div className="mt-3">
-              <label className="text-sm text-slate-400 mb-1 block">
-                Base URL Override{" "}
-                <span className="text-slate-500">(optional)</span>
-              </label>
+        {/* Spec Target for Manual Mode */}
+        {mode === "manual" && (
+          <div className="glass-panel rounded-2xl p-5 shadow-xl relative overflow-hidden border border-white/[0.04] glow-card-hover bg-[#05070c]/35">
+            <div className="flex items-center gap-2.5 mb-4 pb-4 border-b border-white/[0.04]">
+              <div className="p-2 rounded-xl bg-purple-600/10 border border-purple-500/20 text-purple-400 flex-shrink-0">
+                <Globe className="h-4.5 w-4.5" />
+              </div>
+              <div>
+                <h3 className="text-xs font-extrabold text-white tracking-tight uppercase">
+                  1. Target API Host Override Path
+                </h3>
+                <p className="text-[9px] text-slate-500">
+                  Configure the primary server destination for manual assertion runs.
+                </p>
+              </div>
+            </div>
+            <div>
+              <label className="text-[9px] text-slate-455 font-bold uppercase tracking-wider block mb-1.5">Target Host URL</label>
               <input
                 type="text"
-                placeholder="https://api.yourapp.com/v1"
+                placeholder="e.g. http://localhost:3003  or  https://staging.api.com"
                 value={config.baseUrl}
                 onChange={(e) =>
                   setConfig((c) => ({ ...c, baseUrl: e.target.value }))
                 }
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono text-sm"
+                className="w-full bg-slate-950 border border-white/[0.06] rounded-xl px-4 py-2.5 text-white placeholder-slate-650 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 font-mono text-xs shadow-inner"
               />
             </div>
           </div>
         )}
 
-        {/* ── BASE URL (only in manual mode) ── */}
-        {mode === "manual" && (
-          <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-6">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <span>🔗</span> Base URL
-              <span className="text-red-400 text-sm">*required</span>
-            </h2>
-            <input
-              type="text"
-              placeholder="http://localhost:3003  or  https://yourapi.com"
-              value={config.baseUrl}
-              onChange={(e) =>
-                setConfig((c) => ({ ...c, baseUrl: e.target.value }))
-              }
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono text-sm"
-            />
-            <p className="text-xs text-slate-500 mt-2">
-              This is where your API is running. All paths from your test file
-              will be appended to this URL.
-            </p>
+        {/* ── 3-COLUMN COCKPIT LAYOUT ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          
+          {/* COLUMN 1: CONFIGURATION MODE */}
+          <div className="space-y-6">
+            <div className="glass-panel rounded-2xl p-5 shadow-lg space-y-4 glow-card-hover">
+              <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 pb-2.5 border-b border-white/[0.04]">
+                <Sliders className="h-3.5 w-3.5 text-blue-400" />
+                2. Audit Mode Selector
+              </h3>
+              
+              <div className="space-y-3">
+                {(["auto", "manual", "both"] as Mode[]).map((m) => {
+                  const cfg = modeConfig[m];
+                  const Icon = cfg.icon;
+                  return (
+                    <button
+                      key={m}
+                      onClick={() => setMode(m)}
+                      className={`w-full rounded-xl p-3 text-left border transition-all duration-200 flex gap-3 outline-none ${
+                        mode === m
+                          ? `${cfg.activeBg}`
+                          : "border-transparent bg-slate-950/20 hover:bg-slate-900/20"
+                      }`}
+                    >
+                      <div className={`p-2 rounded h-8 w-8 flex items-center justify-center flex-shrink-0 ${mode === m ? 'bg-slate-950 text-white' : 'bg-slate-900/60 text-slate-500'}`}>
+                        <Icon className={`h-4 w-4 ${mode === m ? cfg.accentText : ''}`} />
+                      </div>
+                      <div>
+                        <div className={`text-xs font-bold tracking-tight ${mode === m ? "text-white animate-pulse-short" : "text-slate-350"}`}>
+                          {cfg.label}
+                        </div>
+                        <p className="text-[9px] text-slate-500 mt-1 leading-relaxed">
+                          {cfg.desc}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-        )}
 
-        {/* ── AUTH ── */}
-        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <span>🔐</span> Authentication
-          </h2>
+          {/* COLUMN 2: AUTHORIZATION DETAILS */}
+          <div className="space-y-6">
+            <div className="glass-panel rounded-2xl p-5 shadow-lg space-y-4 h-full glow-card-hover">
+              <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b border-white/[0.04] pb-2.5">
+                <Lock className="h-3.5 w-3.5 text-blue-400" />
+                3. Security Parameters
+              </h3>
 
-          <div className="grid grid-cols-2 gap-2 mb-4 sm:grid-cols-5">
-            {(["none", "bearer", "apikey", "basic", "autologin"] as const).map(
-              (type) => (
-                <button
-                  key={type}
-                  onClick={() => setConfig((c) => ({ ...c, authType: type }))}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    config.authType === type
-                      ? "bg-blue-600 text-white"
-                      : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                  }`}
-                >
-                  {type === "none" && "None"}
-                  {type === "bearer" && "Bearer"}
-                  {type === "apikey" && "API Key"}
-                  {type === "basic" && "Basic"}
-                  {type === "autologin" && "Auto Login"}
-                </button>
-              ),
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { type: "none", label: "No Auth", icon: Shield },
+                  { type: "bearer", label: "Bearer Token", icon: Key },
+                  { type: "apikey", label: "API Key Header", icon: Lock },
+                  { type: "basic", label: "Basic Auth", icon: UserCheck },
+                  { type: "autologin", label: "Session Auto", icon: Sparkles }
+                ].map(({ type, label, icon: Icon }) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => setConfig((c) => ({ ...c, authType: type as any }))}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-semibold border transition-all justify-start outline-none ${
+                      config.authType === type
+                        ? "bg-blue-600/10 border-blue-500/40 text-blue-400 shadow-md shadow-blue-900/10"
+                        : "bg-slate-950/20 border-white/[0.04] text-slate-450 hover:text-slate-300 hover:bg-slate-900/30"
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5 flex-shrink-0" />
+                    <span className="truncate">{label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="pt-2 space-y-3.5">
+                {config.authType === "bearer" && (
+                  <div className="space-y-1.5 animate-fadeIn">
+                    <label className="text-[9px] text-slate-455 font-bold uppercase tracking-wider block">JWT Bearer Authorization String</label>
+                    <textarea
+                      placeholder="Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                      value={config.authValue}
+                      rows={5}
+                      onChange={(e) =>
+                        setConfig((c) => ({ ...c, authValue: e.target.value }))
+                      }
+                      className="w-full bg-slate-950 border border-white/[0.06] rounded-xl px-3 py-2 text-white placeholder-slate-650 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 font-mono text-[10px] resize-none leading-relaxed"
+                    />
+                  </div>
+                )}
+
+                {config.authType === "apikey" && (
+                  <div className="space-y-3.5 animate-fadeIn">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[9px] text-slate-455 font-bold uppercase tracking-wider block mb-1">Key Field Header</label>
+                        <input
+                          type="text"
+                          placeholder="X-API-Key"
+                          value={config.apiKeyName}
+                          onChange={(e) =>
+                            setConfig((c) => ({ ...c, apiKeyName: e.target.value }))
+                          }
+                          className="w-full bg-slate-955 border border-white/[0.06] rounded-xl px-3 py-2 text-white placeholder-slate-650 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 text-[10px] font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-slate-455 font-bold uppercase tracking-wider block mb-1">Transport</label>
+                        <select
+                          value={config.apiKeyLocation}
+                          onChange={(e) =>
+                            setConfig((c) => ({
+                              ...c,
+                              apiKeyLocation: e.target.value as any,
+                            }))
+                          }
+                          className="w-full bg-slate-955 border border-white/[0.06] rounded-xl px-2.5 py-2 text-slate-350 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 text-[10px] font-semibold"
+                        >
+                          <option value="header">HTTP Header</option>
+                          <option value="query">URL Query</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-slate-455 font-bold uppercase tracking-wider block mb-1">Key secret value</label>
+                      <input
+                        type="text"
+                        placeholder="Enter authentication key value"
+                        value={config.authValue}
+                        onChange={(e) =>
+                          setConfig((c) => ({ ...c, authValue: e.target.value }))
+                        }
+                        className="w-full bg-slate-955 border border-white/[0.06] rounded-xl px-3 py-2 text-white placeholder-slate-650 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 font-mono text-[10px]"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {config.authType === "basic" && (
+                  <div className="animate-fadeIn">
+                    <label className="text-[9px] text-slate-455 font-bold uppercase tracking-wider block mb-1">Basic Base64 String</label>
+                    <input
+                      type="text"
+                      placeholder="username:password"
+                      value={config.authValue}
+                      onChange={(e) =>
+                        setConfig((c) => ({ ...c, authValue: e.target.value }))
+                      }
+                      className="w-full bg-slate-955 border border-white/[0.06] rounded-xl px-3 py-2 text-white placeholder-slate-650 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 font-mono text-[10px]"
+                    />
+                  </div>
+                )}
+
+                {config.authType === "autologin" && (
+                  <div className="space-y-3.5 animate-fadeIn">
+                    <div>
+                      <label className="text-[9px] text-slate-455 font-bold uppercase tracking-wider block mb-1">Identity POST Token URL</label>
+                      <input
+                        type="text"
+                        placeholder="https://api.yourapp.com/auth/login"
+                        value={config.loginUrl}
+                        onChange={(e) =>
+                          setConfig((c) => ({ ...c, loginUrl: e.target.value }))
+                        }
+                        className="w-full bg-slate-955 border border-white/[0.06] rounded-xl px-3 py-2 text-white placeholder-slate-650 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 font-mono text-[10px]"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[9px] text-slate-455 font-bold uppercase tracking-wider block mb-1">Username / Client ID</label>
+                        <input
+                          type="text"
+                          placeholder="Email or identity ID"
+                          value={config.loginUsername}
+                          onChange={(e) =>
+                            setConfig((c) => ({ ...c, loginUsername: e.target.value }))
+                          }
+                          className="w-full bg-slate-955 border border-white/[0.06] rounded-xl px-3 py-2 text-white placeholder-slate-650 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 text-[10px]"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-slate-455 font-bold uppercase tracking-wider block mb-1">Secret Password</label>
+                        <input
+                          type="password"
+                          placeholder="Password"
+                          value={config.loginPassword}
+                          onChange={(e) =>
+                            setConfig((c) => ({ ...c, loginPassword: e.target.value }))
+                          }
+                          className="w-full bg-slate-955 border border-white/[0.06] rounded-xl px-3 py-2 text-white placeholder-slate-655 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 text-[10px]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {config.authType === "none" && (
+                  <div className="text-center py-10 text-slate-500 font-mono text-[10px] space-y-2 bg-[#05070c]/50 rounded-2xl border border-white/[0.03]">
+                    <Shield className="h-6 w-6 text-slate-600 mx-auto animate-pulse" />
+                    <p>Auditing target in unprotected mode.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* COLUMN 3: OVERRIDES & SPREADSHEETS ZONE */}
+          <div className="space-y-6">
+            
+            {/* Spreadsheet upload zones */}
+            {(mode === "manual" || mode === "both") && (
+              <div className="animate-fadeIn">
+                <CustomTestUpload
+                  onTestsLoaded={(content, type, count) => {
+                    setCustomTestsContent(content);
+                    setCustomTestsType(type);
+                    setCustomTestsCount(count);
+                  }}
+                  onClear={() => {
+                    setCustomTestsContent(null);
+                    setCustomTestsCount(0);
+                  }}
+                  loadedCount={customTestsCount}
+                  required={mode === "manual"}
+                />
+              </div>
             )}
-          </div>
 
-          {config.authType === "bearer" && (
-            <input
-              type="text"
-              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-              value={config.authValue}
-              onChange={(e) =>
-                setConfig((c) => ({ ...c, authValue: e.target.value }))
-              }
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono text-sm"
-            />
-          )}
+            {/* Fuzz Modifiers */}
+            <div className="glass-panel rounded-2xl p-5 shadow-lg space-y-4 glow-card-hover">
+              <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b border-white/[0.04] pb-2.5">
+                <Sliders className="h-3.5 w-3.5 text-blue-400" />
+                4. Audit Modifiers
+              </h3>
 
-          {config.authType === "apikey" && (
-            <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  placeholder="Header name (e.g. X-API-Key)"
-                  value={config.apiKeyName}
-                  onChange={(e) =>
-                    setConfig((c) => ({ ...c, apiKeyName: e.target.value }))
-                  }
-                  className="bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-sm"
-                />
-                <select
-                  value={config.apiKeyLocation}
-                  onChange={(e) =>
-                    setConfig((c) => ({
-                      ...c,
-                      apiKeyLocation: e.target.value as any,
-                    }))
-                  }
-                  className="bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 text-sm"
-                >
-                  <option value="header">In Header</option>
-                  <option value="query">In Query Param</option>
-                </select>
-              </div>
-              <input
-                type="text"
-                placeholder="Your API key value"
-                value={config.authValue}
-                onChange={(e) =>
-                  setConfig((c) => ({ ...c, authValue: e.target.value }))
-                }
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono text-sm"
-              />
-            </div>
-          )}
-
-          {config.authType === "basic" && (
-            <input
-              type="text"
-              placeholder="username:password"
-              value={config.authValue}
-              onChange={(e) =>
-                setConfig((c) => ({ ...c, authValue: e.target.value }))
-              }
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono text-sm"
-            />
-          )}
-
-          {config.authType === "autologin" && (
-            <div className="space-y-2">
-              <input
-                type="text"
-                placeholder="Login URL (e.g. https://api.yourapp.com/auth/login)"
-                value={config.loginUrl}
-                onChange={(e) =>
-                  setConfig((c) => ({ ...c, loginUrl: e.target.value }))
-                }
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono text-sm"
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  placeholder="Username or email"
-                  value={config.loginUsername}
-                  onChange={(e) =>
-                    setConfig((c) => ({ ...c, loginUsername: e.target.value }))
-                  }
-                  className="bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-sm"
-                />
-                <input
-                  type="password"
-                  placeholder="Password"
-                  value={config.loginPassword}
-                  onChange={(e) =>
-                    setConfig((c) => ({ ...c, loginPassword: e.target.value }))
-                  }
-                  className="bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-sm"
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ── FILE UPLOAD (shown in manual + both mode) ── */}
-        {(mode === "manual" || mode === "both") && (
-          <div className="mb-6">
-            <CustomTestUpload
-              onTestsLoaded={(content, type, count) => {
-                setCustomTestsContent(content);
-                setCustomTestsType(type);
-                setCustomTestsCount(count);
-              }}
-              onClear={() => {
-                setCustomTestsContent(null);
-                setCustomTestsCount(0);
-              }}
-              loadedCount={customTestsCount}
-              required={mode === "manual"}
-            />
-          </div>
-        )}
-
-        {/* ── ADVANCED ── */}
-        <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 mb-6">
-          <button
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className="text-sm text-slate-400 hover:text-slate-200 flex items-center gap-2 transition-colors"
-          >
-            {showAdvanced ? "▼" : "▶"} Advanced Settings
-          </button>
-          {showAdvanced && (
-            <div className="mt-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-sm text-slate-300">
-                  Delay between tests (ms)
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  max={5000}
-                  value={config.delayBetweenTests}
-                  onChange={(e) =>
-                    setConfig((c) => ({
-                      ...c,
-                      delayBetweenTests: Number(e.target.value),
-                    }))
-                  }
-                  className="w-24 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-white text-sm text-right"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-sm text-slate-300">
-                    Skip AI test generation
-                  </label>
-                  <p className="text-xs text-slate-500">
-                    Disables Gemini AI bonus tests
-                  </p>
-                </div>
-                <button
-                  onClick={() =>
-                    setConfig((c) => ({
-                      ...c,
-                      skipAiGeneration: !c.skipAiGeneration,
-                    }))
-                  }
-                  className={`w-12 h-6 rounded-full transition-colors ${config.skipAiGeneration ? "bg-blue-600" : "bg-slate-600"}`}
-                >
-                  <div
-                    className={`w-5 h-5 bg-white rounded-full mx-auto transition-transform ${config.skipAiGeneration ? "translate-x-2.5" : "-translate-x-2.5"}`}
+              <div className="space-y-4 text-xs">
+                {/* Rate limit delay slider */}
+                <div className="border-b border-white/[0.04] pb-3.5">
+                  <div className="flex justify-between items-center mb-1">
+                    <h4 className="text-xs font-bold text-slate-350">Rate-Limiting Interval</h4>
+                    <span className="text-[10px] font-mono text-blue-400 font-bold bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">{config.delayBetweenTests}ms</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1000}
+                    step={10}
+                    value={config.delayBetweenTests}
+                    onChange={(e) =>
+                      setConfig((c) => ({
+                        ...c,
+                        delayBetweenTests: Number(e.target.value),
+                      }))
+                    }
+                    className="w-full h-1 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-blue-500"
                   />
-                </button>
+                  <p className="text-[9px] text-slate-500 mt-1 leading-none">Sets the API request throttle delay between audits.</p>
+                </div>
+
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-350 font-sans">Skip AI Edge-Cases</h4>
+                    <p className="text-[9px] text-slate-500 mt-0.5">Disables Gemini boundary checks to maximize speed.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setConfig((c) => ({
+                        ...c,
+                        skipAiGeneration: !c.skipAiGeneration,
+                      }))
+                    }
+                    className={`w-10 h-5.5 rounded-full transition-all relative flex items-center flex-shrink-0 outline-none custom-switch ${config.skipAiGeneration ? "bg-blue-600" : "bg-slate-800"}`}
+                  >
+                    <div
+                      className={`w-4 h-4 bg-white rounded-full transition-transform absolute ${config.skipAiGeneration ? "right-0.5" : "left-0.5"}`}
+                    />
+                  </button>
+                </div>
               </div>
             </div>
-          )}
+          </div>
+
         </div>
 
-        {/* ── BUTTONS ── */}
-        <div className="flex gap-3">
+        {/* ── INTERACTIVE ACTION TRIGGER WIDGET ── */}
+        <div className="flex flex-col sm:flex-row gap-3 pt-6 border-t border-white/[0.04]">
           {mode !== "manual" && (
             <button
               onClick={handleDryRun}
               disabled={isRunning}
-              className="px-5 py-3 bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-white rounded-xl font-medium transition-colors text-sm"
+              className="flex items-center justify-center gap-2 px-6 py-4 bg-slate-900/60 border border-white/[0.06] hover:border-white/[0.1] hover:bg-slate-800 disabled:opacity-40 text-slate-300 font-bold rounded-xl transition-all text-xs active:scale-[0.98] outline-none shadow-md"
             >
-              👁️ Dry Run
+              <Eye className="h-4 w-4" />
+              <span>Dry Run Spec</span>
             </button>
           )}
           <button
             onClick={handleSubmit}
             disabled={isRunning || !canRun()}
-            className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-colors text-lg"
+            className="flex-1 flex items-center justify-center gap-2 py-4 bg-gradient-to-r from-blue-600 via-indigo-650 to-purple-650 hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-all text-sm shadow-xl shadow-blue-500/10 active:scale-[0.99] outline-none relative overflow-hidden group"
           >
-            {isRunning
-              ? "⏳ Running..."
-              : mode === "manual"
-                ? `🚀 Run ${customTestsCount > 0 ? customTestsCount : ""} Manual Tests`
-                : mode === "both"
-                  ? `🚀 Run Auto + ${customTestsCount} Manual Tests`
-                  : "🚀 Run Tests"}
+            <Play className="h-4 w-4 fill-white flex-shrink-0" />
+            <span className="relative z-10 font-bold tracking-wide uppercase text-xs">
+              {isRunning
+                ? "Launching Auditing Suite..."
+                : mode === "manual"
+                  ? `Execute Custom Suite (${customTestsCount} manual cases)`
+                  : mode === "both"
+                    ? `Execute Combined Audit (Auto + ${customTestsCount} manual)`
+                    : "Execute Automated Fuzzing Suite"}
+            </span>
+            <div className="absolute inset-0 w-1/2 h-full bg-white/10 skew-x-12 translate-x-[-100%] group-hover:translate-x-[250%] transition-transform duration-1000 ease-out" />
           </button>
         </div>
 
-        {/* ── HOW IT WORKS ── */}
-        <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* Dry run result overlay card */}
+        {dryRunResult && (
+          <div className="glass-panel rounded-2xl p-5 shadow-xl space-y-4 max-w-4xl border border-white/[0.06] glow-card-hover animate-fadeIn">
+            <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2 font-mono">
+              <Eye className="h-4 w-4 text-blue-400" />
+              Dry Run Evaluation Results
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
+              <div className="bg-[#05070c]/50 p-3 rounded-xl border border-white/[0.03]">
+                <div className="text-xl font-black font-mono text-blue-400 leading-none">{dryRunResult.endpointCount}</div>
+                <div className="text-[9px] uppercase font-bold text-slate-500 tracking-wider mt-2.5">Endpoints Detected</div>
+              </div>
+              <div className="bg-[#05070c]/50 p-3 rounded-xl border border-white/[0.03]">
+                <div className="text-xl font-black font-mono text-purple-400 leading-none">{dryRunResult.totalTests}</div>
+                <div className="text-[9px] uppercase font-bold text-slate-500 tracking-wider mt-2.5">Test Scenarios Generated</div>
+              </div>
+              <div className="bg-[#05070c]/50 p-3 rounded-xl border border-white/[0.03]">
+                <div className="text-xl font-black font-mono text-emerald-450 leading-none">{Math.round(dryRunResult.totalTests * 0.4)}</div>
+                <div className="text-[9px] uppercase font-bold text-slate-500 tracking-wider mt-2.5">Estimated AI Edge Cases</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── HIGH-DENSITY FEATURE OVERVIEW ── */}
+        <footer className="pt-8 border-t border-white/[0.04] grid grid-cols-1 sm:grid-cols-3 gap-6">
           {[
             {
-              icon: "⚙️",
-              title: "Auto Mode",
-              desc: "Paste Swagger URL → 100+ tests auto generated",
+              icon: Layers,
+              title: "Rule-Based Fuzzing",
+              desc: "Boundary checks, query validation, path formats, and auth bypass attempts calculated instantly.",
+              color: "text-blue-400",
+              bgColor: "bg-blue-500/5 border-blue-500/10"
             },
             {
-              icon: "📋",
-              title: "Manual Mode",
-              desc: "Upload CSV/Excel → run your own test cases",
+              icon: Sparkles,
+              title: "AI Cognitive Edge Cases",
+              desc: "Gemini injects dynamic SQLi, cross-site scripting, character overflows, and duplicate entry checks.",
+              color: "text-purple-400",
+              bgColor: "bg-purple-500/5 border-purple-500/10"
             },
             {
-              icon: "🚀",
-              title: "Both Mode",
-              desc: "Auto + manual together in one report",
+              icon: Info,
+              title: "Telemetry & Coverage",
+              desc: "Get deep coverage graphs, latency percentile analytics, and download comprehensive compliance reports.",
+              color: "text-emerald-450",
+              bgColor: "bg-emerald-500/5 border-emerald-500/10"
             },
-          ].map((item) => (
-            <div
-              key={item.title}
-              className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 text-center"
-            >
-              <div className="text-2xl mb-2">{item.icon}</div>
-              <div className="font-medium text-sm">{item.title}</div>
-              <div className="text-xs text-slate-400 mt-1">{item.desc}</div>
-            </div>
-          ))}
-        </div>
-      </div>
+          ].map((item) => {
+            const Icon = item.icon;
+            return (
+              <div key={item.title} className={`flex gap-3.5 p-4 rounded-xl border ${item.bgColor} backdrop-blur-sm glow-card-hover`}>
+                <div className="mt-0.5">
+                  <Icon className={`h-4.5 w-4.5 ${item.color}`} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white tracking-tight font-sans">{item.title}</h4>
+                  <p className="text-[10px] text-slate-500 mt-1 leading-relaxed font-medium">{item.desc}</p>
+                </div>
+              </div>
+            );
+          })}
+        </footer>
+
+      </main>
     </div>
   );
 }
