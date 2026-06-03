@@ -1,0 +1,52 @@
+name: API Audit (SwaggerPilot CLI)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  petstore-smoke-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run smoke audit against Petstore
+        run: |
+          npm run cli:run -- \
+            --spec https://petstore.swagger.io/v2/swagger.json \
+            --base https://petstore.swagger.io/v2 \
+            --profile smoke \
+            --fail-under 30 \
+            --out ../audit-report.json
+        continue-on-error: true
+
+      - name: PR audit summary
+        if: always()
+        run: node scripts/pr-comment.js audit-report.json >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: swagger-pilot-audit-report
+          path: audit-report.json

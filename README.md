@@ -39,6 +39,21 @@ npm run dev
 
 Open http://localhost:5173 → Paste your Swagger URL → Click Run Tests ✅
 
+### CI / CLI audit (no UI)
+
+```bash
+cd backend
+npm install && npm run build
+npm run cli:run -- \
+  --spec https://petstore.swagger.io/v2/swagger.json \
+  --base https://petstore.swagger.io/v2 \
+  --profile smoke \
+  --fail-under 50 \
+  --out report.json
+```
+
+Exit code `1` if pass rate is below `--fail-under`. Use `--profile full` for the complete rule engine + optional Gemini tests.
+
 ### Option B — With Docker
 
 ```bash
@@ -118,6 +133,41 @@ Open http://localhost:5173
 
 ---
 
+## 📤 Client & developer exports
+
+| Export | Audience |
+|--------|----------|
+| **Client Pack (ZIP)** | JSON audit + README + Postman + executive summary — hand to clients |
+| **Client PDF** | Executive one-pager for PMs / clients |
+| **Postman collection** | Failed tests replayable in Postman |
+| **XLSX / CSV / JSON** | Full audit data |
+| **Regression** | Compares pass rate vs your last run (browser) |
+
+## 🔍 Contract drift & release readiness
+
+After each run, SwaggerPilot compares **documented OpenAPI responses** vs **what your API actually returned**:
+
+- Undocumented status codes (e.g. spec says 400/404 but API returns 500)
+- Endpoints in spec with no tests executed
+- High failure rate per endpoint
+- Validation rules documented but not enforced
+
+You get a **drift score (0–100)**, **release readiness** (`go` / `warn` / `no-go`), and **rule-based failure insights** on every failed test. Optional **Gemini** deepens diagnostics when `GEMINI_API_KEY` is set — structured JSON only, with rule-engine fallback so results stay honest.
+
+## 🎬 Demo for interviews
+
+1. Click **Run demo audit (Petstore)** on the home screen (or paste any public OpenAPI URL).
+2. Use **Smoke** for a fast CI-style run, or **Full** for the complete rule engine.
+3. Open the report → **Executive Summary**, **Contract Drift**, **Top failure insights**.
+4. Export **Client Pack (ZIP)** and mention **CLI** + **GitHub Actions** (`api-audit.yml`) for pipelines.
+
+## 🧪 Run profiles
+
+| Profile | Use case |
+|---------|----------|
+| **Smoke** | Auth + happy path only — fast CI (~minutes) |
+| **Full** | All rule-engine tests + optional Gemini edge cases |
+
 ## 📊 Example Output
 
 ```
@@ -159,12 +209,14 @@ swagger-pilot/
 │       ├── swagger-parser/     # Fetches + parses any OpenAPI 2.0/3.0 spec
 │       ├── test-generator/     # Rule engine + Gemini AI test generation
 │       ├── test-runner/        # Executes tests, handles all auth types
-│       ├── reporter/           # Formats final report
+│       ├── reporter/           # Report + contract drift + release readiness
+│       ├── diagnostics/      # Rule + Gemini failure diagnostics
+│       ├── run-orchestrator/ # Shared run logic (UI + CLI), parallel batches
 │       └── gateway/            # WebSocket gateway (orchestrates everything)
 ├── frontend/
 │   └── src/
 │       ├── pages/              # Home (form) + Report (results)
-│       ├── components/         # TestCard, LiveFeed
+│       ├── components/         # LiveFeed, Sidebar
 │       └── hooks/              # useSocket (all real-time logic)
 ├── docker-compose.yml
 ├── README.md

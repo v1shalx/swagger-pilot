@@ -28,7 +28,7 @@ export default function App() {
   }, [isRunning, showReport, state.phase, state.report]);
 
   return (
-    <div className="min-h-screen bg-[#030712] text-slate-100 flex overflow-hidden">
+    <div className="h-screen bg-[#030712] text-slate-100 flex overflow-hidden">
       
       {/* Sidebar navigation dock */}
       <Sidebar
@@ -39,16 +39,21 @@ export default function App() {
         onTabChange={setActiveTab}
         isCollapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        geminiConfigured={state.geminiConfigured}
       />
 
       {/* Main Workspace Frame */}
-      <div className="flex-1 flex flex-col min-h-screen overflow-hidden bg-cyber-grid bg-spotlight relative">
+      <div className="flex-1 flex flex-col min-h-0 h-screen overflow-hidden bg-cyber-grid bg-spotlight relative">
         
         {/* Glow ambient spots overlay */}
         <div className="absolute inset-0 bg-spotlight-success pointer-events-none z-0" />
         <div className="absolute inset-0 bg-spotlight-error pointer-events-none z-0" />
 
-        <div className="flex-1 relative z-10 flex flex-col min-h-0 overflow-y-auto scrollbar-thin">
+        <div
+          className={`flex-1 relative z-10 flex flex-col min-h-0 ${
+            activeTab === 'live' ? 'overflow-hidden' : 'overflow-y-auto scrollbar-thin'
+          }`}
+        >
           
           {/* Active view renderer */}
           {activeTab === 'report' && state.report ? (
@@ -65,9 +70,9 @@ export default function App() {
               onRequestRootCause={requestRootCause}
             />
           ) : activeTab === 'live' ? (
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
               {/* Sleek Top stream bar */}
-              <div className="bg-[#05070c]/60 border-b border-white/[0.04] px-6 py-3.5 flex items-center justify-between backdrop-blur-md sticky top-0 z-20">
+              <div className="flex-shrink-0 bg-[#05070c]/60 border-b border-white/[0.04] px-6 py-3.5 flex items-center justify-between backdrop-blur-md z-20">
                 <div className="flex items-center gap-3">
                   <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
                   <span className="font-bold text-xs uppercase text-white tracking-widest font-mono">Stream Analyzer Target</span>
@@ -83,7 +88,7 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="flex-1 p-6 overflow-hidden min-h-0">
+              <div className="flex-1 min-h-0 p-6 overflow-hidden">
                 <LiveFeed
                   results={state.results}
                   phase={state.phase}

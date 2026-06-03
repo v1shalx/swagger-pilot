@@ -9,8 +9,6 @@ import {
   Lock,
   Unlock,
   Search,
-  Sliders,
-  Play
 } from "lucide-react";
 
 interface LiveFeedProps {
@@ -34,16 +32,10 @@ export default function LiveFeed({
   onCancel,
   isRunning,
 }: LiveFeedProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [filter, setFilter] = useState<'all' | 'PASS' | 'FAIL' | 'ERROR' | 'SKIPPED'>('all');
   const [searchQuery, setSearchQuery] = useState("");
-
-  useEffect(() => {
-    if (autoScroll) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [results, autoScroll]);
 
   const progressPercent = totalTests > 0 ? Math.round((completedTests / totalTests) * 100) : 0;
   const passed = results.filter((r) => r.status === 'PASS').length;
@@ -59,6 +51,13 @@ export default function LiveFeed({
       return matchesFilter && matchesSearch;
     });
   }, [results, filter, searchQuery]);
+
+  useEffect(() => {
+    if (autoScroll && scrollContainerRef.current) {
+      const el = scrollContainerRef.current;
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [results, autoScroll, filteredResults.length]);
 
   const statusConfig = {
     PASS: { dot: "bg-emerald-500", text: "text-emerald-400 font-bold", tag: "[PASS]", badge: "badge-neon-emerald" },
@@ -79,21 +78,21 @@ export default function LiveFeed({
   };
 
   return (
-    <div className="flex flex-col h-full text-slate-100 font-sans">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden text-slate-100 font-sans">
       
-      {/* High-density status cockpit panel */}
-      <div className="glass-panel rounded-2xl p-4.5 mb-4 shadow-lg border-white/[0.04] bg-[#05070c]/35">
+      {/* Fixed stats / progress bar — does not scroll */}
+      <div className="flex-shrink-0 glass-panel rounded-2xl p-4.5 mb-4 shadow-lg border-white/[0.04] bg-[#05070c]/35">
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2.5">
-            <span className="h-2 w-2 rounded-full bg-blue-500 animate-ping"></span>
-            <span className="text-[10px] font-bold text-slate-400 tracking-widest uppercase font-mono">{phase} Phase Active</span>
-            <span className="text-xs text-slate-650">•</span>
-            <span className="text-xs text-slate-205 font-bold tracking-tight">{statusMessage}</span>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="h-2 w-2 rounded-full bg-blue-500 animate-ping flex-shrink-0"></span>
+            <span className="text-[10px] font-bold text-slate-400 tracking-widest uppercase font-mono flex-shrink-0">{phase} Phase Active</span>
+            <span className="text-xs text-slate-500 flex-shrink-0">•</span>
+            <span className="text-xs text-slate-200 font-bold tracking-tight truncate">{statusMessage}</span>
           </div>
           {isRunning && (
             <button
               onClick={onCancel}
-              className="flex items-center gap-1.5 text-[10px] bg-rose-600 hover:bg-rose-500 text-white px-3.5 py-1.5 rounded-lg font-extrabold uppercase tracking-wider transition-all active:scale-[0.98] shadow-lg shadow-rose-950/20 border border-rose-650/30"
+              className="flex-shrink-0 flex items-center gap-1.5 text-[10px] bg-rose-600 hover:bg-rose-500 text-white px-3.5 py-1.5 rounded-lg font-extrabold uppercase tracking-wider transition-all active:scale-[0.98] shadow-lg shadow-rose-950/20 border border-rose-650/30"
             >
               <Square className="h-3 w-3 fill-white" />
               <span>Abort Run</span>
@@ -101,12 +100,11 @@ export default function LiveFeed({
           )}
         </div>
 
-        {/* Progress gauge bar */}
         {totalTests > 0 && (
           <div className="mb-4">
-            <div className="flex justify-between text-[10px] font-mono text-slate-400 mb-1.5">
+            <div className="flex justify-between text-[10px] font-mono text-slate-300 mb-1.5">
               <span>{completedTests} / {totalTests} API Audits Executed</span>
-              <span className="text-blue-450 font-bold tracking-wider">{progressPercent}% Completed</span>
+              <span className="text-blue-400 font-bold tracking-wider">{progressPercent}% Completed</span>
             </div>
             <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-white/[0.04] shadow-inner">
               <div
@@ -117,35 +115,33 @@ export default function LiveFeed({
           </div>
         )}
 
-        {/* Live counters widgets */}
-        <div className="grid grid-cols-3 gap-3 text-center">
-          <div className="bg-[#05070c]/55 border border-white/[0.04] rounded-xl p-2.5 flex items-center justify-center gap-3 shadow-sm">
-            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-            <div className="text-left leading-none">
-              <div className="text-base font-black text-white font-mono leading-none tracking-tight">{passed}</div>
-              <span className="text-[8px] uppercase font-bold text-slate-500 tracking-widest block mt-1">PASSED</span>
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-slate-900/80 border border-emerald-500/20 rounded-xl p-3 flex items-center justify-center gap-3">
+            <CheckCircle2 className="h-5 w-5 text-emerald-400 flex-shrink-0" />
+            <div className="text-left leading-none min-w-0">
+              <div className="text-lg font-black text-white font-mono leading-none">{passed}</div>
+              <span className="text-[9px] uppercase font-bold text-emerald-400/90 tracking-widest block mt-1.5">Passed</span>
             </div>
           </div>
-          <div className="bg-[#05070c]/55 border border-white/[0.04] rounded-xl p-2.5 flex items-center justify-center gap-3 shadow-sm">
-            <XCircle className="h-5 w-5 text-rose-500" />
-            <div className="text-left leading-none">
-              <div className="text-base font-black text-white font-mono leading-none tracking-tight">{failed}</div>
-              <span className="text-[8px] uppercase font-bold text-slate-500 tracking-widest block mt-1">FAILED</span>
+          <div className="bg-slate-900/80 border border-rose-500/20 rounded-xl p-3 flex items-center justify-center gap-3">
+            <XCircle className="h-5 w-5 text-rose-400 flex-shrink-0" />
+            <div className="text-left leading-none min-w-0">
+              <div className="text-lg font-black text-white font-mono leading-none">{failed}</div>
+              <span className="text-[9px] uppercase font-bold text-rose-400/90 tracking-widest block mt-1.5">Failed</span>
             </div>
           </div>
-          <div className="bg-[#05070c]/55 border border-white/[0.04] rounded-xl p-2.5 flex items-center justify-center gap-3 shadow-sm">
-            <AlertTriangle className="h-5 w-5 text-amber-500" />
-            <div className="text-left leading-none">
-              <div className="text-base font-black text-white font-mono leading-none tracking-tight">{errors}</div>
-              <span className="text-[8px] uppercase font-bold text-slate-500 tracking-widest block mt-1">ERRORS</span>
+          <div className="bg-slate-900/80 border border-amber-500/20 rounded-xl p-3 flex items-center justify-center gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-400 flex-shrink-0" />
+            <div className="text-left leading-none min-w-0">
+              <div className="text-lg font-black text-white font-mono leading-none">{errors}</div>
+              <span className="text-[9px] uppercase font-bold text-amber-400/90 tracking-widest block mt-1.5">Errors</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Warnings alerts */}
       {warnings.length > 0 && (
-        <div className="space-y-1.5 mb-3.5 animate-fadeIn">
+        <div className="flex-shrink-0 space-y-1.5 mb-3.5 animate-fadeIn max-h-24 overflow-y-auto scrollbar-thin">
           {warnings.map((w, i) => (
             <div key={i} className="flex gap-2.5 bg-amber-955/10 border border-amber-900/40 rounded-xl px-3.5 py-2 text-amber-300 text-xs shadow">
               <AlertTriangle className="h-4 w-4 text-amber-455 flex-shrink-0 mt-0.5" />
@@ -155,10 +151,8 @@ export default function LiveFeed({
         </div>
       )}
 
-      {/* Toolbar filters bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-3.5">
-        
-        {/* Console Search */}
+      {/* Fixed filter toolbar — does not scroll */}
+      <div className="flex-shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-3 mb-3.5">
         <div className="relative w-full md:w-64">
           <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-500" />
           <input
@@ -170,9 +164,8 @@ export default function LiveFeed({
           />
         </div>
 
-        {/* Action controls */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex gap-1.5">
+          <div className="flex gap-1.5 flex-wrap">
             {(['all', 'PASS', 'FAIL', 'ERROR', 'SKIPPED'] as const).map((f) => {
               const count = f === 'all' ? results.length : results.filter((r) => r.status === f).length;
               let btnClass = "bg-[#05070c]/50 hover:bg-slate-900/40 text-slate-500 border border-white/[0.04] hover:text-slate-350";
@@ -209,10 +202,9 @@ export default function LiveFeed({
         </div>
       </div>
 
-      {/* Terminal active grid view scanline */}
-      <div className="flex-1 min-h-[400px] bg-[#05070c]/60 border border-white/[0.05] rounded-2xl overflow-hidden flex flex-col shadow-inner backdrop-blur-md scanlines">
-        {/* Terminal Header */}
-        <div className="bg-[#05070c]/90 border-b border-white/[0.04] px-4 py-2.5 flex items-center justify-between z-20">
+      {/* Scrollable console only */}
+      <div className="flex-1 min-h-0 bg-[#05070c]/60 border border-white/[0.05] rounded-2xl overflow-hidden flex flex-col shadow-inner backdrop-blur-md scanlines">
+        <div className="flex-shrink-0 bg-[#05070c]/90 border-b border-white/[0.04] px-4 py-2.5 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <TerminalIcon className="h-4 w-4 text-slate-500 animate-pulse" />
             <span className="text-[9px] font-mono uppercase font-bold tracking-widest text-slate-450">Console Output feed</span>
@@ -220,10 +212,12 @@ export default function LiveFeed({
           <span className="text-[9px] font-mono text-slate-550 uppercase font-bold tracking-wider">UTF-8 • socket_node:active</span>
         </div>
 
-        {/* Live list scrolling */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-1.5 scrollbar-thin font-mono text-[10px] leading-normal bg-[#030509]/80 z-20 relative">
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 space-y-1.5 scrollbar-thin font-mono text-[10px] leading-normal bg-[#030509]/80"
+        >
           {filteredResults.length === 0 && results.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full py-16 text-center text-slate-650 font-mono select-none">
+            <div className="flex flex-col items-center justify-center h-full min-h-[12rem] text-center text-slate-650 font-mono select-none">
               <TerminalIcon className="h-8 w-8 text-slate-800 mb-3 animate-pulse" />
               <p className="text-xs font-bold">Initializing audit console stream...</p>
               <p className="text-[9px] text-slate-700 mt-1">Awaiting real-time audit triggers from active spec plans</p>
@@ -232,10 +226,12 @@ export default function LiveFeed({
           
           {filteredResults.map((t, i) => {
             const cfg = statusConfig[t.status];
-            const time = new Date().toLocaleTimeString();
+            const time = t.timestamp
+              ? new Date(t.timestamp).toLocaleTimeString()
+              : '—';
             return (
               <div 
-                key={i} 
+                key={`${t.method}-${t.path}-${t.testName}-${i}`}
                 className="flex items-start gap-2 py-1 px-1.5 rounded hover:bg-white/[0.02] transition-colors tracking-tight font-medium"
               >
                 <span className="text-slate-650 flex-shrink-0 select-none">[{time}]</span>
@@ -243,9 +239,9 @@ export default function LiveFeed({
                 <span className={`w-10 flex-shrink-0 font-bold select-none ${getMethodColor(t.method)}`}>{t.method.padEnd(4)}</span>
                 <span className="text-slate-300 break-all select-all">{t.path}</span>
                 <span className="text-slate-650 flex-shrink-0 select-none">—</span>
-                <span className="text-slate-450 truncate flex-1">{t.testName.replace(`${t.method} ${t.path} — `, "")}</span>
+                <span className="text-slate-450 truncate flex-1 min-w-0">{t.testName.replace(`${t.method} ${t.path} — `, "")}</span>
                 <span className="text-slate-605 flex-shrink-0 select-none font-bold">({t.responseTime}ms)</span>
-                {t.actual && (
+                {t.actual != null && (
                   <span className={`flex-shrink-0 font-bold tracking-wider ${t.actual < 400 ? 'text-emerald-450' : 'text-rose-500 text-shadow-red'}`}>
                     HTTP:{t.actual}
                   </span>
@@ -253,7 +249,6 @@ export default function LiveFeed({
               </div>
             );
           })}
-          <div ref={bottomRef} />
         </div>
       </div>
     </div>

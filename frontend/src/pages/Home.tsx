@@ -17,8 +17,7 @@ import {
   Key,
   Shield,
   UserCheck,
-  Zap,
-  Info
+  Zap
 } from "lucide-react";
 
 interface HomeProps {
@@ -62,6 +61,7 @@ export default function Home({
     loginPassword: "",
     delayBetweenTests: 150,
     skipAiGeneration: false,
+    runProfile: 'full',
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [customTestsContent, setCustomTestsContent] = useState<string | null>(
@@ -124,6 +124,29 @@ export default function Home({
     setConfig((c) => ({ ...c, swaggerUrl: sample.url, baseUrl: sample.base }));
   };
 
+  const runDemoAudit = () => {
+    const sample = SAMPLE_URLS[0];
+    setMode('auto');
+    setConfig((c) => ({
+      ...c,
+      swaggerUrl: sample.url,
+      baseUrl: sample.base,
+      runProfile: 'smoke',
+      skipAiGeneration: true,
+      authType: 'none',
+    }));
+    setTimeout(() => {
+      onRunTests({
+        swaggerUrl: sample.url,
+        baseUrl: sample.base,
+        authType: 'none',
+        runProfile: 'smoke',
+        skipAiGeneration: true,
+        delayBetweenTests: 80,
+      });
+    }, 100);
+  };
+
   const modeConfig = {
     auto: {
       label: "Automated Suite",
@@ -163,12 +186,12 @@ export default function Home({
             </div>
             <div>
               <span className="font-black text-xs text-white tracking-tight leading-none uppercase">SWAGGER<span className="text-blue-500">PILOT</span></span>
-              <span className="ml-2 text-[9px] uppercase font-bold tracking-widest px-2.5 py-1 rounded bg-slate-950/80 text-slate-400 border border-white/[0.04]">QA Fuzzing Console</span>
+              <span className="ml-2 text-[9px] uppercase font-bold tracking-widest px-2.5 py-1 rounded bg-slate-950/80 text-slate-400 border border-white/[0.04]">API Test Runner</span>
             </div>
           </div>
           <div className="flex items-center gap-2 bg-slate-950/60 px-3 py-1.5 rounded-lg border border-white/[0.04] shadow">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400">Secure Cluster Online</span>
+            <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400">Engine Ready</span>
           </div>
         </div>
       </header>
@@ -183,11 +206,20 @@ export default function Home({
               <span>Next-Gen API Auditing</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight leading-none">
-              Automated Spec Fuzzing & Diagnostics
+              Paste your OpenAPI URL. Get a full API audit in minutes.
             </h1>
-            <p className="text-slate-450 text-xs font-medium">
-              Run instant functional fuzz tests, boundary error evaluations, circular reference logic validations, and AI-powered cognitive vulnerability injection.
+            <p className="text-slate-400 text-xs font-medium max-w-xl">
+              SwaggerPilot generates 100+ tests from your spec, runs them live, and produces a client-ready PDF — plus CI export and Postman replay for your dev team.
             </p>
+            <button
+              type="button"
+              onClick={runDemoAudit}
+              disabled={isRunning}
+              className="mt-3 flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow-lg shadow-blue-900/30 transition-all"
+            >
+              <Play className="h-4 w-4 fill-white" />
+              Run demo audit (Petstore)
+            </button>
           </div>
         </div>
 
@@ -352,7 +384,7 @@ export default function Home({
                   { type: "bearer", label: "Bearer Token", icon: Key },
                   { type: "apikey", label: "API Key Header", icon: Lock },
                   { type: "basic", label: "Basic Auth", icon: UserCheck },
-                  { type: "autologin", label: "Session Auto", icon: Sparkles }
+                  { type: "autologin", label: "Auto Login", icon: Sparkles }
                 ].map(({ type, label, icon: Icon }) => (
                   <button
                     key={type}
@@ -554,23 +586,58 @@ export default function Home({
                   <p className="text-[9px] text-slate-500 mt-1 leading-none">Sets the API request throttle delay between audits.</p>
                 </div>
 
+                <div>
+                  <h4 className="text-xs font-bold text-slate-300 mb-2">Run profile</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { id: 'smoke' as const, label: 'Smoke', desc: 'Auth + happy path — fast CI' },
+                      { id: 'full' as const, label: 'Full audit', desc: 'All rules + AI edge cases' },
+                    ]).map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() =>
+                          setConfig((c) => ({
+                            ...c,
+                            runProfile: p.id,
+                            skipAiGeneration: p.id === 'smoke' ? true : c.skipAiGeneration,
+                          }))
+                        }
+                        className={`rounded-xl p-2.5 text-left border transition-all outline-none ${
+                          config.runProfile === p.id
+                            ? 'bg-blue-600/15 border-blue-500/40 shadow-md'
+                            : 'bg-slate-950/40 border-white/[0.04] hover:border-white/[0.08]'
+                        }`}
+                      >
+                        <div className={`text-[10px] font-bold ${config.runProfile === p.id ? 'text-blue-300' : 'text-slate-400'}`}>
+                          {p.label}
+                        </div>
+                        <p className="text-[8px] text-slate-500 mt-0.5">{p.desc}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <h4 className="text-xs font-bold text-slate-350 font-sans">Skip AI Edge-Cases</h4>
-                    <p className="text-[9px] text-slate-500 mt-0.5">Disables Gemini boundary checks to maximize speed.</p>
+                    <h4 className="text-xs font-bold text-slate-300 font-sans">Skip AI Edge-Cases</h4>
+                    <p className="text-[9px] text-slate-500 mt-0.5">Disables Gemini (full profile only).</p>
                   </div>
                   <button
                     type="button"
+                    disabled={config.runProfile === 'smoke'}
                     onClick={() =>
                       setConfig((c) => ({
                         ...c,
                         skipAiGeneration: !c.skipAiGeneration,
                       }))
                     }
-                    className={`w-10 h-5.5 rounded-full transition-all relative flex items-center flex-shrink-0 outline-none custom-switch ${config.skipAiGeneration ? "bg-blue-600" : "bg-slate-800"}`}
+                    className={`w-10 h-5.5 rounded-full transition-all relative flex items-center flex-shrink-0 outline-none custom-switch ${
+                      config.skipAiGeneration || config.runProfile === 'smoke' ? "bg-blue-600" : "bg-slate-800"
+                    } ${config.runProfile === 'smoke' ? 'opacity-50' : ''}`}
                   >
                     <div
-                      className={`w-4 h-4 bg-white rounded-full transition-transform absolute ${config.skipAiGeneration ? "right-0.5" : "left-0.5"}`}
+                      className={`w-4 h-4 bg-white rounded-full transition-transform absolute ${config.skipAiGeneration || config.runProfile === 'smoke' ? "right-0.5" : "left-0.5"}`}
                     />
                   </button>
                 </div>
@@ -618,7 +685,7 @@ export default function Home({
               <Eye className="h-4 w-4 text-blue-400" />
               Dry Run Evaluation Results
             </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-center">
               <div className="bg-[#05070c]/50 p-3 rounded-xl border border-white/[0.03]">
                 <div className="text-xl font-black font-mono text-blue-400 leading-none">{dryRunResult.endpointCount}</div>
                 <div className="text-[9px] uppercase font-bold text-slate-500 tracking-wider mt-2.5">Endpoints Detected</div>
@@ -627,53 +694,9 @@ export default function Home({
                 <div className="text-xl font-black font-mono text-purple-400 leading-none">{dryRunResult.totalTests}</div>
                 <div className="text-[9px] uppercase font-bold text-slate-500 tracking-wider mt-2.5">Test Scenarios Generated</div>
               </div>
-              <div className="bg-[#05070c]/50 p-3 rounded-xl border border-white/[0.03]">
-                <div className="text-xl font-black font-mono text-emerald-450 leading-none">{Math.round(dryRunResult.totalTests * 0.4)}</div>
-                <div className="text-[9px] uppercase font-bold text-slate-500 tracking-wider mt-2.5">Estimated AI Edge Cases</div>
-              </div>
             </div>
           </div>
         )}
-
-        {/* ── HIGH-DENSITY FEATURE OVERVIEW ── */}
-        <footer className="pt-8 border-t border-white/[0.04] grid grid-cols-1 sm:grid-cols-3 gap-6">
-          {[
-            {
-              icon: Layers,
-              title: "Rule-Based Fuzzing",
-              desc: "Boundary checks, query validation, path formats, and auth bypass attempts calculated instantly.",
-              color: "text-blue-400",
-              bgColor: "bg-blue-500/5 border-blue-500/10"
-            },
-            {
-              icon: Sparkles,
-              title: "AI Cognitive Edge Cases",
-              desc: "Gemini injects dynamic SQLi, cross-site scripting, character overflows, and duplicate entry checks.",
-              color: "text-purple-400",
-              bgColor: "bg-purple-500/5 border-purple-500/10"
-            },
-            {
-              icon: Info,
-              title: "Telemetry & Coverage",
-              desc: "Get deep coverage graphs, latency percentile analytics, and download comprehensive compliance reports.",
-              color: "text-emerald-450",
-              bgColor: "bg-emerald-500/5 border-emerald-500/10"
-            },
-          ].map((item) => {
-            const Icon = item.icon;
-            return (
-              <div key={item.title} className={`flex gap-3.5 p-4 rounded-xl border ${item.bgColor} backdrop-blur-sm glow-card-hover`}>
-                <div className="mt-0.5">
-                  <Icon className={`h-4.5 w-4.5 ${item.color}`} />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white tracking-tight font-sans">{item.title}</h4>
-                  <p className="text-[10px] text-slate-500 mt-1 leading-relaxed font-medium">{item.desc}</p>
-                </div>
-              </div>
-            );
-          })}
-        </footer>
 
       </main>
     </div>

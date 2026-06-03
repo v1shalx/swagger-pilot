@@ -10,6 +10,7 @@ export interface RunTestsConfig {
   loginPassword?: string;
   delayBetweenTests?: number;
   skipAiGeneration?: boolean;
+  runProfile?: 'smoke' | 'full';
 }
 
 export interface TestResult {
@@ -26,8 +27,43 @@ export interface TestResult {
   errorMessage?: string;
   requestBody?: any;
   responseBody?: any;
+  responseHeaders?: Record<string, string>;
   isAiGenerated: boolean;
+  timestamp?: string;
   progress?: { completed: number; total: number };
+}
+
+export interface FailureDiagnostic {
+  likelyCause: string;
+  ownerHint: 'backend' | 'openapi-spec' | 'auth' | 'infrastructure';
+  suggestedFix: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  source: 'rules' | 'gemini';
+}
+
+export interface ContractDriftItem {
+  method: string;
+  path: string;
+  severity: 'critical' | 'warning' | 'info';
+  type: string;
+  message: string;
+  documentedCodes: number[];
+  observedCodes: number[];
+  exampleTests: string[];
+}
+
+export interface ContractDriftReport {
+  items: ContractDriftItem[];
+  endpointsInSpec: number;
+  endpointsTested: number;
+  undocumentedStatusCount: number;
+  driftScore: number;
+}
+
+export interface ReleaseReadiness {
+  status: 'go' | 'warn' | 'no-go';
+  label: string;
+  reasons: string[];
 }
 
 export interface TestReport {
@@ -48,6 +84,10 @@ export interface TestReport {
   byCategory: CategorySummary[];
   failedTests: TestResult[];
   allTests: TestResult[];
+  contractDrift?: ContractDriftReport;
+  releaseReadiness?: ReleaseReadiness;
+  estimatedManualHoursSaved?: number;
+  topFailureInsights?: { testKey: string; diagnostic: FailureDiagnostic }[];
 }
 
 export interface EndpointSummary {
@@ -72,6 +112,7 @@ export interface DryRunResult {
   baseUrl: string;
   endpointCount: number;
   totalTests: number;
+  aiTestCount: number;
   breakdown: {
     endpoint: string;
     testCount: number;

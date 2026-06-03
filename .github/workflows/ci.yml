@@ -81,7 +81,5 @@ jobs:
         env:
           PORT: 4000
 
-      - name: Test against Petstore (public API)
-        run: |
-          curl -f http://localhost:4000 || echo "Health check not implemented, backend started"
-          echo "Backend is running"
+      - name: Health check
+        run: curl -sf http://localhost:4000/health | grep -q '"status":"ok"'

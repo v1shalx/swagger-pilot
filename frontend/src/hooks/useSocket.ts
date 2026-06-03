@@ -28,9 +28,36 @@ interface SocketState {
   warnings: string[];
   error: string | null;
   isConnected: boolean;
+  geminiConfigured: boolean;
   aiInsightsLoading: boolean;
   aiInsights: string | null;
-  rootCauses: Record<string, { loading: boolean; text: string | null }>;
+  rootCauses: Record<string, { loading: boolean; text: string | null; diagnostic?: import('../types').FailureDiagnostic }>;
+}
+
+function emitWhenConnected(
+  socketRef: React.MutableRefObject<Socket | null>,
+  connect: () => void,
+  event: string,
+  payload: unknown,
+) {
+  if (socketRef.current?.connected) {
+    socketRef.current.emit(event, payload);
+    return;
+  }
+
+  connect();
+  const socket = socketRef.current;
+  if (!socket) return;
+
+  const doEmit = () => {
+    socket.emit(event, payload);
+  };
+
+  if (socket.connected) {
+    doEmit();
+  } else {
+    socket.once('connect', doEmit);
+  }
 }
 
 export function useSocket() {
@@ -47,6 +74,7 @@ export function useSocket() {
     warnings: [],
     error: null,
     isConnected: false,
+    geminiConfigured: false,
     aiInsightsLoading: false,
     aiInsights: null,
     rootCauses: {},
@@ -71,8 +99,12 @@ export function useSocket() {
       setState((s) => ({ ...s, isConnected: false }));
     });
 
-    socket.on('connected', () => {
-      setState((s) => ({ ...s, isConnected: true }));
+    socket.on('connected', (data: { geminiConfigured?: boolean }) => {
+      setState((s) => ({
+        ...s,
+        isConnected: true,
+        geminiConfigured: !!data.geminiConfigured,
+      }));
     });
 
     socket.on('status', (data: any) => {
@@ -137,29 +169,21 @@ export function useSocket() {
       }));
     });
 
-    socket.on('root-cause-result', (data: { testKey: string; analysis: string }) => {
+    socket.on('root-cause-result', (data: { testKey: string; analysis: string; diagnostic?: import('../types').FailureDiagnostic }) => {
       setState((s) => ({
         ...s,
         rootCauses: {
           ...s.rootCauses,
-          [data.testKey]: { loading: false, text: data.analysis },
+          [data.testKey]: { loading: false, text: data.analysis, diagnostic: data.diagnostic },
         },
       }));
     });
   }, []);
 
   const runTests = useCallback((config: RunTestsConfig) => {
-    if (!socketRef.current?.connected) {
-      connect();
-      // wait a bit for connection then emit
-      setTimeout(() => {
-        socketRef.current?.emit('run-tests', config);
-      }, 500);
-    } else {
-      socketRef.current.emit('run-tests', config);
-    }
+    emitWhenConnected(socketRef, connect, 'run-tests', config);
 
-    setState({
+    setState((s) => ({
       phase: 'connecting',
       statusMessage: '🔌 Connecting...',
       specInfo: null,
@@ -170,20 +194,16 @@ export function useSocket() {
       completedTests: 0,
       warnings: [],
       error: null,
-      isConnected: state.isConnected,
+      isConnected: s.isConnected,
+      geminiConfigured: s.geminiConfigured,
       aiInsightsLoading: false,
       aiInsights: null,
       rootCauses: {},
-    });
-  }, [connect, state.isConnected]);
+    }));
+  }, [connect]);
 
   const dryRun = useCallback((config: RunTestsConfig) => {
-    if (!socketRef.current?.connected) {
-      connect();
-      setTimeout(() => socketRef.current?.emit('dry-run', config), 500);
-    } else {
-      socketRef.current.emit('dry-run', config);
-    }
+    emitWhenConnected(socketRef, connect, 'dry-run', config);
     setState((s) => ({ ...s, phase: 'parsing', statusMessage: '🔍 Running dry run...', dryRunResult: null }));
   }, [connect]);
 
@@ -193,7 +213,7 @@ export function useSocket() {
   }, []);
 
   const reset = useCallback(() => {
-    setState({
+    setState((s) => ({
       phase: 'idle',
       statusMessage: '',
       specInfo: null,
@@ -204,12 +224,13 @@ export function useSocket() {
       completedTests: 0,
       warnings: [],
       error: null,
-      isConnected: state.isConnected,
+      isConnected: s.isConnected,
+      geminiConfigured: s.geminiConfigured,
       aiInsightsLoading: false,
       aiInsights: null,
       rootCauses: {},
-    });
-  }, [state.isConnected]);
+    }));
+  }, []);
 
   const requestAiInsights = useCallback((report: TestReport) => {
     if (socketRef.current?.connected) {
@@ -236,7 +257,7 @@ export function useSocket() {
     return () => {
       socketRef.current?.disconnect();
     };
-  }, []);
+  }, [connect]);
 
   return { state, runTests, dryRun, cancelTests, reset, requestAiInsights, requestRootCause };
 }

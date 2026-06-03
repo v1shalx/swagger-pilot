@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   PieChart,
   Pie,
@@ -13,6 +13,17 @@ import {
 } from "recharts";
 import { TestReport, TestResult, METHOD_COLORS, CATEGORY_LABELS } from "../types";
 import { exportToExcel, exportToCsv } from "../utils/exportExcel";
+import { exportToPdf, exportToJson } from "../utils/exportPdf";
+import { exportClientPdf } from "../utils/exportClientPdf";
+import { exportFailedTestsToPostman } from "../utils/exportPostman";
+import {
+  saveReportSnapshot,
+  compareWithPreviousReport,
+  estimateHoursSaved,
+  loadRunHistory,
+} from "../utils/reportHistory";
+import { exportClientPack } from "../utils/exportClientPack";
+import { FailureDiagnostic } from "../types";
 import { 
   Activity, 
   CheckCircle2, 
@@ -39,7 +50,15 @@ import {
   Check,
   Terminal,
   Server,
-  Layers
+  Layers,
+  Briefcase,
+  TrendingUp,
+  TrendingDown,
+  Package,
+  FileArchive,
+  Shield,
+  GitCompare,
+  ChevronDown,
 } from "lucide-react";
 
 interface ReportProps {
@@ -48,7 +67,7 @@ interface ReportProps {
   aiInsightsLoading?: boolean;
   aiInsights?: string | null;
   onRequestAiInsights?: (report: TestReport) => void;
-  rootCauses?: Record<string, { loading: boolean; text: string | null }>;
+  rootCauses?: Record<string, { loading: boolean; text: string | null; diagnostic?: FailureDiagnostic }>;
   onRequestRootCause?: (testKey: string, result: TestResult) => void;
 }
 
@@ -115,53 +134,31 @@ function HealthGauge({ score }: { score: number }) {
   let grade = "F";
   let gradeColor = "text-rose-500";
   let strokeColor = "stroke-rose-500";
-  let glowColor = "shadow-[0_0_20px_rgba(244,63,94,0.2)]";
   
   if (score >= 95) {
     grade = "A";
     gradeColor = "text-emerald-400";
     strokeColor = "stroke-emerald-450";
-    glowColor = "shadow-[0_0_25px_rgba(16,185,129,0.25)]";
   } else if (score >= 85) {
     grade = "B";
     gradeColor = "text-cyan-400";
     strokeColor = "stroke-cyan-500";
-    glowColor = "shadow-[0_0_20px_rgba(34,211,238,0.2)]";
   } else if (score >= 70) {
     grade = "C";
     gradeColor = "text-amber-500";
     strokeColor = "stroke-amber-500";
-    glowColor = "shadow-[0_0_20px_rgba(245,158,11,0.15)]";
   } else if (score >= 50) {
     grade = "D";
     gradeColor = "text-orange-500";
     strokeColor = "stroke-orange-500";
-    glowColor = "shadow-[0_0_20px_rgba(249,115,22,0.15)]";
   }
 
   return (
     <div className="flex items-center gap-5 glass-panel rounded-2xl p-5 shadow-lg relative overflow-hidden glow-card-hover border-white/[0.04] bg-[#05070c]/35">
       <div className="relative h-20 w-20 flex items-center justify-center">
         <svg className="h-full w-full transform -rotate-90">
-          <circle
-            cx="40"
-            cy="40"
-            r={radius}
-            className="stroke-slate-950"
-            strokeWidth={strokeWidth}
-            fill="transparent"
-          />
-          <circle
-            cx="40"
-            cy="40"
-            r={radius}
-            className={`${strokeColor} transition-all duration-700`}
-            strokeWidth={strokeWidth}
-            fill="transparent"
-            strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
-            strokeLinecap="round"
-          />
+          <circle cx="40" cy="40" r={radius} className="stroke-slate-950" strokeWidth={strokeWidth} fill="transparent" />
+          <circle cx="40" cy="40" r={radius} className={`${strokeColor} transition-all duration-700`} strokeWidth={strokeWidth} fill="transparent" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" />
         </svg>
         <span className={`absolute text-2xl font-black ${gradeColor} tracking-tighter text-shadow`}>{grade}</span>
       </div>
@@ -235,10 +232,7 @@ function buildCurl(result: TestResult): string {
 
   if (result.category === "auth" && result.testName.includes("No auth")) {
     // no auth
-  } else if (
-    result.category === "auth" &&
-    result.testName.includes("Invalid")
-  ) {
+  } else if (result.category === "auth" && result.testName.includes("Invalid")) {
     lines.push(`  -H 'Authorization: Bearer invalid_token_abc123xyz' \\`);
   } else {
     lines.push(`  -H 'Authorization: Bearer [your-token]' \\`);
@@ -257,6 +251,151 @@ function buildCurl(result: TestResult): string {
   }
 
   return lines.join("\n");
+}
+
+function ResponseHeadersTable({ headers, responseTime }: { headers?: Record<string, string>; responseTime: number }) {
+  const entries =
+    headers && Object.keys(headers).length > 0
+      ? Object.entries(headers)
+      : [["latency", `${responseTime}ms`]];
+
+  return (
+    <div className="bg-slate-950 rounded-lg border border-white/[0.04] overflow-hidden text-[9px] font-mono shadow-inner">
+      <table className="w-full">
+        <tbody>
+          {entries.map(([key, value], idx) => (
+            <tr key={key} className={idx < entries.length - 1 ? "border-b border-[#05070c]" : ""}>
+              <td className="px-2.5 py-1.5 text-slate-500 font-bold uppercase tracking-wider w-32 break-all">{key}</td>
+              <td className="px-2.5 py-1.5 text-slate-350 break-all">{value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Export Dropdown Component ───────────────────────────────────────────────
+interface ExportDropdownProps {
+  onExportClientPack: () => void;
+  onExportClientPdf: () => void;
+  onExportPostman: () => void;
+  onExportExcel: () => void;
+  onExportCsv: () => void;
+  onExportPdf: () => void;
+  onExportJson: () => void;
+}
+
+function ExportDropdown({
+  onExportClientPack,
+  onExportClientPdf,
+  onExportPostman,
+  onExportExcel,
+  onExportCsv,
+  onExportPdf,
+  onExportJson,
+}: ExportDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const handleItem = (fn: () => void) => {
+    fn();
+    setOpen(false);
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wider bg-slate-900 border border-white/[0.07] hover:bg-slate-800 hover:border-white/[0.12] px-3.5 py-2 rounded-lg text-slate-300 hover:text-white transition-all active:scale-[0.97] outline-none select-none"
+      >
+        <Download className="h-3.5 w-3.5" />
+        <span>Export</span>
+        <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-56 bg-[#0c0e14] border border-white/[0.08] rounded-xl overflow-hidden shadow-2xl shadow-black/60 animate-fadeIn">
+          
+          {/* Client Deliverables group */}
+          <div className="pt-2 pb-1 px-1">
+            <p className="text-[8px] uppercase font-black text-slate-600 tracking-widest px-2.5 py-1 font-mono">
+              Client deliverables
+            </p>
+            <button
+              onClick={() => handleItem(onExportClientPack)}
+              className="flex items-center gap-2.5 w-full px-2.5 py-2 text-[10px] font-semibold text-violet-400 hover:bg-violet-500/10 hover:text-violet-300 rounded-lg transition-all text-left outline-none"
+            >
+              <FileArchive className="h-3.5 w-3.5 flex-shrink-0" />
+              Client pack (ZIP)
+            </button>
+            <button
+              onClick={() => handleItem(onExportClientPdf)}
+              className="flex items-center gap-2.5 w-full px-2.5 py-2 text-[10px] font-semibold text-slate-400 hover:bg-white/[0.04] hover:text-slate-200 rounded-lg transition-all text-left outline-none"
+            >
+              <Briefcase className="h-3.5 w-3.5 flex-shrink-0" />
+              Client PDF
+            </button>
+          </div>
+
+          {/* Divider */}
+          <div className="h-px bg-white/[0.06] mx-2" />
+
+          {/* Dev Tools group */}
+          <div className="pt-1 pb-2 px-1">
+            <p className="text-[8px] uppercase font-black text-slate-600 tracking-widest px-2.5 py-1 font-mono">
+              Dev tools
+            </p>
+            <button
+              onClick={() => handleItem(onExportPostman)}
+              className="flex items-center gap-2.5 w-full px-2.5 py-2 text-[10px] font-semibold text-orange-400 hover:bg-orange-500/10 hover:text-orange-300 rounded-lg transition-all text-left outline-none"
+            >
+              <Package className="h-3.5 w-3.5 flex-shrink-0" />
+              Postman collection
+            </button>
+            <button
+              onClick={() => handleItem(onExportExcel)}
+              className="flex items-center gap-2.5 w-full px-2.5 py-2 text-[10px] font-semibold text-slate-400 hover:bg-white/[0.04] hover:text-slate-200 rounded-lg transition-all text-left outline-none"
+            >
+              <Download className="h-3.5 w-3.5 flex-shrink-0" />
+              XLSX report
+            </button>
+            <button
+              onClick={() => handleItem(onExportCsv)}
+              className="flex items-center gap-2.5 w-full px-2.5 py-2 text-[10px] font-semibold text-slate-400 hover:bg-white/[0.04] hover:text-slate-200 rounded-lg transition-all text-left outline-none"
+            >
+              <Download className="h-3.5 w-3.5 flex-shrink-0" />
+              CSV log
+            </button>
+            <button
+              onClick={() => handleItem(onExportPdf)}
+              className="flex items-center gap-2.5 w-full px-2.5 py-2 text-[10px] font-semibold text-slate-400 hover:bg-white/[0.04] hover:text-slate-200 rounded-lg transition-all text-left outline-none"
+            >
+              <Download className="h-3.5 w-3.5 flex-shrink-0" />
+              PDF report
+            </button>
+            <button
+              onClick={() => handleItem(onExportJson)}
+              className="flex items-center gap-2.5 w-full px-2.5 py-2 text-[10px] font-semibold text-slate-400 hover:bg-white/[0.04] hover:text-slate-200 rounded-lg transition-all text-left outline-none"
+            >
+              <Download className="h-3.5 w-3.5 flex-shrink-0" />
+              JSON report
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function Report({
@@ -278,18 +417,117 @@ export default function Report({
 
   // Selected Test inside Explorer
   const [selectedTestIndex, setSelectedTestIndex] = useState<number | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const handleExportExcel = useCallback(async () => {
+    try {
+      setExportError(null);
+      await exportToExcel(report);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Excel export failed';
+      setExportError(message);
+      alert(`Failed to export Excel report: ${message}`);
+    }
+  }, [report]);
+
+  const handleExportCsv = useCallback(() => {
+    try {
+      setExportError(null);
+      exportToCsv(report);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'CSV export failed';
+      setExportError(message);
+      alert(`Failed to export CSV report: ${message}`);
+    }
+  }, [report]);
+
+  const handleExportPdf = useCallback(async () => {
+    try {
+      setExportError(null);
+      await exportToPdf(report, 'report-pdf-export');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'PDF export failed';
+      setExportError(message);
+      alert(`Failed to export PDF report: ${message}`);
+    }
+  }, [report]);
+
+  const handleExportJson = useCallback(() => {
+    try {
+      setExportError(null);
+      exportToJson(report);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'JSON export failed';
+      setExportError(message);
+      alert(`Failed to export JSON report: ${message}`);
+    }
+  }, [report]);
+
+  const handleExportClientPdf = useCallback(() => {
+    try {
+      setExportError(null);
+      exportClientPdf(report);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Client PDF export failed';
+      setExportError(message);
+      alert(`Failed to export client PDF: ${message}`);
+    }
+  }, [report]);
+
+  const handleExportClientPack = useCallback(async () => {
+    try {
+      setExportError(null);
+      await exportClientPack(report);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Client pack export failed';
+      setExportError(message);
+      alert(`Failed to export client pack: ${message}`);
+    }
+  }, [report]);
+
+  const handleExportPostman = useCallback(() => {
+    try {
+      setExportError(null);
+      exportFailedTestsToPostman(report);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Postman export failed';
+      setExportError(message);
+      alert(`Failed to export Postman collection: ${message}`);
+    }
+  }, [report]);
+
+  const regression = useMemo(() => compareWithPreviousReport(report), [report]);
+  const runHistory = useMemo(
+    () => loadRunHistory(`${report.swaggerUrl}::${report.baseUrl}`).slice(0, 5),
+    [report.swaggerUrl, report.baseUrl],
+  );
+
+  useEffect(() => {
+    saveReportSnapshot(report);
+  }, [report]);
+
+  const hoursSaved = report.estimatedManualHoursSaved ?? estimateHoursSaved(report.totalTests);
+
+  const getInsight = (testKey: string): FailureDiagnostic | undefined =>
+    report.topFailureInsights?.find((i) => i.testKey === testKey)?.diagnostic;
+
+  const readinessStyle =
+    report.releaseReadiness?.status === 'go'
+      ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300'
+      : report.releaseReadiness?.status === 'warn'
+        ? 'bg-amber-600/20 border-amber-500/40 text-amber-300'
+        : 'bg-rose-600/20 border-rose-500/40 text-rose-300';
+  const heroFailure = report.failedTests[0] ?? null;
 
   // Latency Metrics
   const latencyMetrics = useMemo(() => {
     const nonSkipped = report.allTests.filter((t) => t.status !== "SKIPPED");
     if (nonSkipped.length === 0) return { avg: 0, p50: 0, p95: 0 };
-
     const latencies = nonSkipped.map((t) => t.responseTime).sort((a, b) => a - b);
     const sum = latencies.reduce((acc, curr) => acc + curr, 0);
     const avg = sum / latencies.length;
     const p50 = latencies[Math.floor(latencies.length * 0.5)];
     const p95 = latencies[Math.floor(latencies.length * 0.95)];
-
     return { avg, p50, p95 };
   }, [report.allTests]);
 
@@ -299,7 +537,6 @@ export default function Report({
     const tested = report.byEndpoint.filter((ep) => ep.total - ep.skipped > 0).length;
     const rate = total > 0 ? (tested / total) * 100 : 0;
     const untested = report.byEndpoint.filter((ep) => ep.total - ep.skipped === 0);
-
     return { total, tested, rate, untested };
   }, [report.byEndpoint]);
 
@@ -319,6 +556,32 @@ export default function Report({
       { name: "Skipped", value: report.skipped, color: "#64748b" },
     ].filter((d) => d.value > 0);
   }, [report]);
+
+  const categoryChartData = useMemo(() => {
+    const shortLabels: Record<string, string> = {
+      auth: 'Auth',
+      'path-param': 'Path Param',
+      'query-param': 'Query Param',
+      body: 'Body',
+      'required-field': 'Required',
+      'type-validation': 'Type',
+      boundary: 'Boundary',
+      format: 'Format',
+      'happy-path': 'Happy Path',
+      'ai-edge-case': 'AI Edge',
+      skipped: 'Skipped',
+    };
+    return report.byCategory.map((c) => ({
+      name: shortLabels[c.category] || (CATEGORY_LABELS[c.category] || c.category).replace(/^[^\s]+\s/, ''),
+      category: c.category,
+      passed: c.passed,
+      failed: c.failed,
+      total: c.total,
+    }));
+  }, [report.byCategory]);
+
+  const chartAxisTick = { fontSize: 11, fill: '#cbd5e1', fontFamily: 'monospace' as const };
+  const chartAxisStroke = '#64748b';
 
   // Top Slowest Endpoints
   const slowestEndpoints = useMemo(() => {
@@ -344,13 +607,10 @@ export default function Report({
       const matchesSearch =
         t.path.toLowerCase().includes(explorerSearch.toLowerCase()) ||
         t.testName.toLowerCase().includes(explorerSearch.toLowerCase());
-      
       const matchesStatus = explorerStatus === "all" || t.status === explorerStatus;
       const matchesCategory = explorerCategory === "all" || t.category === explorerCategory;
-
       const matchesEndpoint =
         !selectedEndpointFilter || `${t.method} ${t.path}` === selectedEndpointFilter;
-
       return matchesSearch && matchesStatus && matchesCategory && matchesEndpoint;
     });
   }, [report.allTests, explorerSearch, explorerStatus, explorerCategory, selectedEndpointFilter]);
@@ -380,6 +640,9 @@ export default function Report({
 
   const selectedTestKey = selectedTest ? `${selectedTest.method}-${selectedTest.path}-${selectedTest.testName}` : "";
   const rootCause = rootCauses?.[selectedTestKey];
+  const ruleInsight = selectedTestKey ? getInsight(selectedTestKey) : undefined;
+  const aiDiagnostic = rootCause?.diagnostic;
+  const activeDiagnostic = aiDiagnostic ?? ruleInsight;
   const selectedTestHasFailed = selectedTest && (selectedTest.status === 'FAIL' || selectedTest.status === 'ERROR');
 
   const triggerDiagnostic = (e: React.MouseEvent) => {
@@ -420,10 +683,12 @@ export default function Report({
   return (
     <div className="min-h-screen text-slate-100 font-sans antialiased relative">
       
-      {/* Top Header Workspace */}
+      {/* ─── Top Header ─────────────────────────────────────────────────────── */}
       <header className="border-b border-white/[0.04] bg-[#05070c]/50 backdrop-blur-md sticky top-0 z-40">
-        <div className="w-full px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="w-full px-6 h-14 flex items-center justify-between gap-4">
+          
+          {/* Brand */}
+          <div className="flex items-center gap-3 flex-shrink-0">
             <div className="h-8 w-8 rounded bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
               <Server className="h-4.5 w-4.5 text-white" />
             </div>
@@ -431,29 +696,26 @@ export default function Report({
               <h1 className="text-xs font-bold text-white tracking-tight leading-none uppercase">
                 SwaggerPilot <span className="text-blue-500">Dashboard</span>
               </h1>
-              <p className="text-[10px] text-slate-500 mt-1 font-mono">
-                {report.title} • <span className="text-blue-450">{report.baseUrl}</span>
+              <p className="text-[10px] text-slate-500 mt-0.5 font-mono">
+                {report.title} · <span className="text-blue-450">{report.baseUrl}</span>
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => exportToExcel(report)}
-              className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wider bg-slate-900 border border-white/[0.05] hover:border-white/[0.1] hover:bg-slate-800 px-3.5 py-2 rounded-lg text-slate-350 transition-all active:scale-[0.98] shadow outline-none"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span>XLSX Report</span>
-            </button>
-            <button
-              onClick={() => exportToCsv(report)}
-              className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wider bg-slate-900 border border-white/[0.05] hover:border-white/[0.1] hover:bg-slate-800 px-3.5 py-2 rounded-lg text-slate-350 transition-all active:scale-[0.98] shadow outline-none"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span>CSV Log</span>
-            </button>
+
+          {/* Actions — Export dropdown + New Run only */}
+          <div className="flex items-center gap-2.5 flex-shrink-0">
+            <ExportDropdown
+              onExportClientPack={handleExportClientPack}
+              onExportClientPdf={handleExportClientPdf}
+              onExportPostman={handleExportPostman}
+              onExportExcel={handleExportExcel}
+              onExportCsv={handleExportCsv}
+              onExportPdf={handleExportPdf}
+              onExportJson={handleExportJson}
+            />
             <button
               onClick={onReset}
-              className="flex items-center gap-1.5 text-[10px] uppercase font-extrabold tracking-wider bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-white transition-all active:scale-[0.98] shadow-lg shadow-blue-900/20 outline-none"
+              className="flex items-center gap-1.5 text-[10px] uppercase font-extrabold tracking-wider bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-white transition-all active:scale-[0.97] shadow-lg shadow-blue-900/20 outline-none select-none"
             >
               <RefreshCw className="h-3.5 w-3.5" />
               <span>New Run</span>
@@ -475,63 +737,197 @@ export default function Report({
           </div>
         )}
 
-        {/* Executive KPI row */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <HealthGauge score={healthScore} />
-
-          <div className="glass-panel rounded-2xl p-5 flex flex-col justify-between shadow-lg border-white/[0.04] bg-[#05070c]/35 glow-card-hover">
-            <span className="text-[9px] text-slate-500 uppercase font-bold tracking-widest flex items-center gap-1.5 font-mono">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-              Telemetry Totals
-            </span>
-            <div className="my-2">
-              <div className="text-2xl font-black font-mono text-white leading-none tracking-tight">
-                {report.passed} <span className="text-xs font-normal text-slate-500">/ {report.totalTests - report.skipped}</span>
-              </div>
-              <p className="text-[10px] text-slate-455 mt-1.5">Tests passed (excludes skipped runs)</p>
-            </div>
-            <div className="text-[9px] text-slate-500 font-mono">
-              Failed: {report.failed} • Errors: {report.errors}
-            </div>
+        {exportError && (
+          <div className="bg-rose-950/20 border border-rose-900/40 rounded-xl px-4 py-2 text-rose-300 text-xs font-mono">
+            Export error: {exportError}
           </div>
+        )}
 
-          <div className="glass-panel rounded-2xl p-5 flex flex-col justify-between shadow-lg border-white/[0.04] bg-[#05070c]/35 glow-card-hover">
-            <span className="text-[9px] text-slate-500 uppercase font-bold tracking-widest flex items-center gap-1.5 font-mono">
-              <Clock className="h-3.5 w-3.5 text-blue-400" />
-              Performance Latency
-            </span>
-            <div className="my-2">
-              <div className="text-2xl font-black font-mono text-white leading-none tracking-tight">
-                {Math.round(latencyMetrics.avg)}<span className="text-xs font-normal text-slate-500"> ms</span>
+        {/* Executive summary */}
+        <div className="glass-panel rounded-2xl p-6 shadow-xl border border-indigo-500/20 bg-gradient-to-br from-indigo-950/30 to-[#05070c]/60">
+          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
+            <div className="flex-1 space-y-4">
+              <div className="flex items-center gap-2">
+                <Briefcase className="h-5 w-5 text-indigo-400" />
+                <h2 className="text-sm font-black text-white uppercase tracking-tight">Executive Summary</h2>
+                {report.releaseReadiness && (
+                  <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border ${readinessStyle}`}>
+                    {report.releaseReadiness.label}
+                  </span>
+                )}
               </div>
-              <p className="text-[10px] text-slate-455 mt-1.5">Average response duration</p>
-            </div>
-            <div className="text-[9px] text-slate-500 font-mono">
-              p50: {latencyMetrics.p50}ms • p95: {latencyMetrics.p95}ms
-            </div>
-          </div>
-
-          <div className="glass-panel rounded-2xl p-5 flex flex-col justify-between shadow-lg border-white/[0.04] bg-[#05070c]/35 glow-card-hover">
-            <span className="text-[9px] text-slate-500 uppercase font-bold tracking-widest flex items-center gap-1.5 font-mono">
-              <Percent className="h-3.5 w-3.5 text-purple-400" />
-              Swagger Spec Coverage
-            </span>
-            <div className="my-2">
-              <div className="text-2xl font-black font-mono text-white leading-none tracking-tight">
-                {coverageMetrics.rate.toFixed(1)}%
+              <p className="text-sm text-slate-300 leading-relaxed max-w-2xl">
+                Automated audit of <strong className="text-white">{report.title}</strong> completed in{" "}
+                <strong className="text-white">{durationSec}s</strong> with{" "}
+                <strong className="text-white">{report.totalTests}</strong> tests — replacing roughly{" "}
+                <strong className="text-emerald-400">~{hoursSaved} hours</strong> of manual QA scripting.
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-slate-950/60 rounded-xl p-3 border border-white/[0.05]">
+                  <div className="text-2xl font-black font-mono text-white">{healthScore.toFixed(0)}%</div>
+                  <div className="text-[9px] uppercase font-bold text-slate-400 mt-1">Health score</div>
+                </div>
+                <div className="bg-slate-950/60 rounded-xl p-3 border border-emerald-500/20">
+                  <div className="text-2xl font-black font-mono text-emerald-400">{report.passed}</div>
+                  <div className="text-[9px] uppercase font-bold text-slate-400 mt-1">Passed</div>
+                </div>
+                <div className="bg-slate-950/60 rounded-xl p-3 border border-rose-500/20">
+                  <div className="text-2xl font-black font-mono text-rose-400">{report.failed + report.errors}</div>
+                  <div className="text-[9px] uppercase font-bold text-slate-400 mt-1">Issues</div>
+                </div>
+                <div className="bg-slate-950/60 rounded-xl p-3 border border-white/[0.05]">
+                  <div className="text-2xl font-black font-mono text-slate-300">{coverageMetrics.rate.toFixed(0)}%</div>
+                  <div className="text-[9px] uppercase font-bold text-slate-400 mt-1">Spec coverage</div>
+                </div>
               </div>
-              <p className="text-[10px] text-slate-455 mt-1.5">{coverageMetrics.tested} of {coverageMetrics.total} endpoints</p>
+              {report.releaseReadiness?.reasons && report.releaseReadiness.reasons.length > 0 && (
+                <ul className="text-[10px] text-slate-400 space-y-1 list-disc list-inside max-w-2xl">
+                  {report.releaseReadiness.reasons.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              )}
+              {regression.hasPrevious && (
+                <div className="flex flex-wrap gap-3 text-[10px] font-mono">
+                  <span className={`flex items-center gap-1 px-2 py-1 rounded border ${regression.passRateDelta >= 0 ? 'bg-emerald-950/30 border-emerald-800 text-emerald-300' : 'bg-rose-950/30 border-rose-800 text-rose-300'}`}>
+                    {regression.passRateDelta >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                    Pass rate {regression.passRateDelta >= 0 ? '+' : ''}{regression.passRateDelta}% vs last run
+                  </span>
+                  {regression.newFailures > 0 && (
+                    <span className="px-2 py-1 rounded bg-rose-950/30 border border-rose-800 text-rose-300">
+                      {regression.newFailures} new failures
+                    </span>
+                  )}
+                  {regression.fixedFailures > 0 && (
+                    <span className="px-2 py-1 rounded bg-emerald-950/30 border border-emerald-800 text-emerald-300">
+                      {regression.fixedFailures} fixed since last run
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
-            <div className="w-full bg-slate-950 rounded-full h-1 overflow-hidden mt-1.5 border border-white/[0.04]">
-              <div 
-                className="bg-purple-500 h-full rounded-full" 
-                style={{ width: `${coverageMetrics.rate}%` }}
-              />
+            <div className="lg:w-80 flex-shrink-0 space-y-3">
+              <span className="text-[9px] uppercase font-bold text-slate-500 tracking-widest">Top priority failure</span>
+              {heroFailure ? (
+                <div className="bg-rose-950/20 border border-rose-900/40 rounded-xl p-4 text-xs space-y-2">
+                  <div className="font-mono font-bold text-rose-300">
+                    {heroFailure.method} {heroFailure.path}
+                  </div>
+                  <p className="text-slate-400 leading-relaxed">{heroFailure.testName.replace(`${heroFailure.method} ${heroFailure.path} — `, '')}</p>
+                  <p className="text-[10px] font-mono text-rose-400/90">
+                    Expected {heroFailure.expected.join(' or ')}, got {heroFailure.actual ?? 'N/A'}
+                  </p>
+                  {(() => {
+                    const d = getInsight(`${heroFailure.method}-${heroFailure.path}-${heroFailure.testName}`);
+                    return d ? (
+                      <div className="pt-2 border-t border-rose-900/30 space-y-1">
+                        <p className="text-slate-300"><strong>Cause:</strong> {d.likelyCause}</p>
+                        <p className="text-slate-400"><strong>Fix:</strong> {d.suggestedFix}</p>
+                        <p className="text-[9px] text-slate-500">Owner: {d.ownerHint} • {d.severity} • {d.source} engine</p>
+                      </div>
+                    ) : null;
+                  })()}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('explorer');
+                      setExplorerStatus('all');
+                      setExplorerSearch(heroFailure.path);
+                    }}
+                    className="text-[9px] font-bold uppercase text-blue-400 hover:text-blue-300 underline"
+                  >
+                    Inspect in explorer →
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-emerald-950/20 border border-emerald-900/40 rounded-xl p-4 text-xs text-emerald-300 font-bold">
+                  No failures — API passed all executed checks.
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Tab Selection Navigation */}
+        {/* KPI Row */}
+        <div id="report-pdf-export" className="space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <HealthGauge score={healthScore} />
+            <div className="glass-panel rounded-2xl p-5 flex flex-col justify-between shadow-lg border-white/[0.04] bg-[#05070c]/35 glow-card-hover">
+              <span className="text-[9px] text-slate-500 uppercase font-bold tracking-widest flex items-center gap-1.5 font-mono">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                Telemetry Totals
+              </span>
+              <div className="my-2">
+                <div className="text-2xl font-black font-mono text-white leading-none tracking-tight">
+                  {report.passed} <span className="text-xs font-normal text-slate-500">/ {report.totalTests}</span>
+                </div>
+                <p className="text-[10px] text-slate-455 mt-1.5">Tests passed (excludes skipped runs)</p>
+              </div>
+              <div className="text-[9px] text-slate-500 font-mono">
+                Failed: {report.failed} • Errors: {report.errors}
+              </div>
+            </div>
+            <div className="glass-panel rounded-2xl p-5 flex flex-col justify-between shadow-lg border-white/[0.04] bg-[#05070c]/35 glow-card-hover">
+              <span className="text-[9px] text-slate-500 uppercase font-bold tracking-widest flex items-center gap-1.5 font-mono">
+                <Clock className="h-3.5 w-3.5 text-blue-400" />
+                Performance Latency
+              </span>
+              <div className="my-2">
+                <div className="text-2xl font-black font-mono text-white leading-none tracking-tight">
+                  {Math.round(latencyMetrics.avg)}<span className="text-xs font-normal text-slate-500"> ms</span>
+                </div>
+                <p className="text-[10px] text-slate-455 mt-1.5">Average response duration</p>
+              </div>
+              <div className="text-[9px] text-slate-500 font-mono">
+                p50: {latencyMetrics.p50}ms • p95: {latencyMetrics.p95}ms
+              </div>
+            </div>
+            <div className="glass-panel rounded-2xl p-5 flex flex-col justify-between shadow-lg border-white/[0.04] bg-[#05070c]/35 glow-card-hover">
+              <span className="text-[9px] text-slate-500 uppercase font-bold tracking-widest flex items-center gap-1.5 font-mono">
+                <Percent className="h-3.5 w-3.5 text-purple-400" />
+                Swagger Spec Coverage
+              </span>
+              <div className="my-2">
+                <div className="text-2xl font-black font-mono text-white leading-none tracking-tight">
+                  {coverageMetrics.rate.toFixed(1)}%
+                </div>
+                <p className="text-[10px] text-slate-455 mt-1.5">{coverageMetrics.tested} of {coverageMetrics.total} endpoints</p>
+              </div>
+              <div className="w-full bg-slate-950 rounded-full h-1 overflow-hidden mt-1.5 border border-white/[0.04]">
+                <div className="bg-purple-500 h-full rounded-full" style={{ width: `${coverageMetrics.rate}%` }} />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="glass-panel rounded-2xl p-5 shadow-lg border-white/[0.04] bg-[#05070c]/35">
+              <h3 className="text-[10px] font-bold text-slate-450 uppercase tracking-widest mb-4 font-mono">Results Distribution</h3>
+              <div className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={pieData} cx="50%" cy="50%" outerRadius={65} innerRadius={40} dataKey="value" label={({ name, value }) => `${name}: ${value}`}>
+                      {pieData.map((entry, i) => (<Cell key={i} fill={entry.color} />))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            {report.failedTests.length > 0 && (
+              <div className="glass-panel rounded-2xl p-5 shadow-lg border-white/[0.04] bg-[#05070c]/35">
+                <h3 className="text-[10px] font-bold text-slate-450 uppercase tracking-widest mb-3 font-mono">Failed Tests Summary</h3>
+                <ul className="space-y-1.5 text-xs font-mono text-slate-300 max-h-48 overflow-y-auto">
+                  {report.failedTests.slice(0, 10).map((t, i) => (
+                    <li key={i} className="truncate">
+                      <span className="text-rose-400 font-bold">{t.method}</span> {t.path} — {t.testName.replace(`${t.method} ${t.path} — `, '')}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Tab Navigation */}
         <div className="flex border-b border-white/[0.05]">
           {[
             { id: "summary", label: "Executive Dashboard", icon: Activity },
@@ -559,8 +955,92 @@ export default function Report({
         {/* ──── TAB 1: SUMMARY DASHBOARD ──── */}
         {activeTab === "summary" && (
           <div className="space-y-6">
-            
-            {/* Heatmap Section */}
+            {report.contractDrift && (
+              <div className="glass-panel rounded-2xl p-5 shadow-lg border-white/[0.04] bg-[#05070c]/35 glow-card-hover">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-2.5">
+                    <GitCompare className="h-4.5 w-4.5 text-purple-400" />
+                    <div>
+                      <h3 className="text-xs font-bold text-white tracking-tight uppercase">OpenAPI Contract Drift</h3>
+                      <p className="text-[9px] text-slate-400">Compares documented spec responses vs what your API actually returned.</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-black font-mono text-white">{report.contractDrift.driftScore}</div>
+                    <div className="text-[9px] uppercase font-bold text-slate-500">Drift score / 100</div>
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-400 mb-3 font-mono">
+                  {report.contractDrift.endpointsTested} of {report.contractDrift.endpointsInSpec} spec endpoints tested
+                  {report.contractDrift.undocumentedStatusCount > 0 &&
+                    ` • ${report.contractDrift.undocumentedStatusCount} undocumented status code(s) observed`}
+                </p>
+                {report.contractDrift.items.length > 0 ? (
+                  <div className="space-y-2 max-h-64 overflow-y-auto scrollbar-thin">
+                    {report.contractDrift.items.map((item, idx) => (
+                      <div key={idx} className={`rounded-xl px-3 py-2.5 border text-xs ${item.severity === 'critical' ? 'bg-rose-950/20 border-rose-900/40' : item.severity === 'warning' ? 'bg-amber-950/15 border-amber-900/30' : 'bg-slate-950/40 border-white/[0.04]'}`}>
+                        <div className="flex items-center gap-2 font-mono font-bold text-slate-200">
+                          <span className="uppercase text-[9px] text-slate-500">{item.severity}</span>
+                          {item.method} {item.path}
+                        </div>
+                        <p className="text-slate-400 mt-1 leading-relaxed">{item.message}</p>
+                        {item.documentedCodes.length > 0 && (
+                          <p className="text-[9px] text-slate-500 mt-1 font-mono">
+                            Spec: {item.documentedCodes.join(', ')} → Observed: {item.observedCodes.join(', ') || '—'}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-emerald-400 font-medium">No contract drift detected — API behavior aligns with OpenAPI documentation.</p>
+                )}
+              </div>
+            )}
+
+            {(report.topFailureInsights?.length ?? 0) > 0 && (
+              <div className="glass-panel rounded-2xl p-5 shadow-lg border-white/[0.04] bg-[#05070c]/35">
+                <h3 className="text-xs font-bold text-white uppercase tracking-tight flex items-center gap-2 mb-3">
+                  <AlertTriangle className="h-4 w-4 text-rose-400" />
+                  Top failure insights
+                </h3>
+                <div className="space-y-2">
+                  {report.topFailureInsights!.map((item) => (
+                    <div key={item.testKey} className="rounded-xl px-3 py-2.5 border border-white/[0.05] bg-slate-950/50 text-xs">
+                      <div className="flex flex-wrap items-center gap-2 font-mono font-bold text-slate-200">
+                        <span className={`text-[8px] uppercase px-1.5 py-0.5 rounded border ${item.diagnostic.severity === 'critical' || item.diagnostic.severity === 'high' ? 'border-rose-800 text-rose-400' : item.diagnostic.severity === 'medium' ? 'border-amber-800 text-amber-400' : 'border-slate-700 text-slate-400'}`}>
+                          {item.diagnostic.severity}
+                        </span>
+                        <span className="text-[9px] text-slate-500">{item.diagnostic.ownerHint}</span>
+                        <span className="text-[9px] text-slate-600">• {item.diagnostic.source}</span>
+                      </div>
+                      <p className="text-slate-400 mt-1">{item.diagnostic.likelyCause}</p>
+                      <p className="text-slate-500 mt-0.5 text-[10px]">Fix: {item.diagnostic.suggestedFix}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {runHistory.length > 1 && (
+              <div className="glass-panel rounded-2xl p-5 shadow-lg border-white/[0.04] bg-[#05070c]/35">
+                <h3 className="text-xs font-bold text-white uppercase tracking-tight flex items-center gap-2 mb-3">
+                  <Shield className="h-4 w-4 text-blue-400" />
+                  Run history (this project)
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {runHistory.map((h, i) => (
+                    <div key={i} className="px-3 py-2 rounded-lg bg-slate-950 border border-white/[0.05] text-[10px] font-mono">
+                      <span className="text-slate-500">{new Date(h.savedAt).toLocaleString()}</span>
+                      <span className="text-white font-bold ml-2">{h.report.passRate}%</span>
+                      <span className="text-slate-500 ml-1">pass</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Heatmap */}
             <div className="glass-panel rounded-2xl p-5 shadow-lg space-y-4 border-white/[0.04] bg-[#05070c]/35 glow-card-hover">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                 <div className="flex items-center gap-2.5">
@@ -578,44 +1058,25 @@ export default function Report({
                   <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded bg-slate-800 inline-block"></span>SKIPPED</span>
                 </div>
               </div>
-
               <div className="flex flex-wrap gap-1.5">
                 {report.byEndpoint.map((ep, idx) => {
                   const nonSkipped = ep.total - ep.skipped;
                   const successRate = nonSkipped > 0 ? (ep.passed / nonSkipped) * 100 : -1;
-                  
-                  let cellBg = "bg-slate-800 hover:bg-slate-750"; // default skipped
+                  let cellBg = "bg-slate-800 hover:bg-slate-750";
                   let hoverBorder = "hover:border-slate-500";
-                  if (successRate === 100) {
-                    cellBg = "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.15)]";
-                    hoverBorder = "hover:border-emerald-300";
-                  } else if (successRate >= 80) {
-                    cellBg = "bg-emerald-700/80";
-                    hoverBorder = "hover:border-emerald-500";
-                  } else if (successRate >= 50) {
-                    cellBg = "bg-amber-500/80";
-                    hoverBorder = "hover:border-amber-300";
-                  } else if (successRate >= 0) {
-                    cellBg = "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.15)]";
-                    hoverBorder = "hover:border-rose-300 animate-pulse-short";
-                  }
-
+                  if (successRate === 100) { cellBg = "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.15)]"; hoverBorder = "hover:border-emerald-300"; }
+                  else if (successRate >= 80) { cellBg = "bg-emerald-700/80"; hoverBorder = "hover:border-emerald-500"; }
+                  else if (successRate >= 50) { cellBg = "bg-amber-500/80"; hoverBorder = "hover:border-amber-300"; }
+                  else if (successRate >= 0) { cellBg = "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.15)]"; hoverBorder = "hover:border-rose-300 animate-pulse-short"; }
                   const isSelected = selectedEndpointFilter === `${ep.method} ${ep.endpoint}`;
-
                   return (
                     <button
                       key={idx}
                       onClick={() => {
-                        if (isSelected) {
-                          setSelectedEndpointFilter(null);
-                        } else {
-                          setSelectedEndpointFilter(`${ep.method} ${ep.endpoint}`);
-                          setActiveTab("explorer");
-                        }
+                        if (isSelected) { setSelectedEndpointFilter(null); }
+                        else { setSelectedEndpointFilter(`${ep.method} ${ep.endpoint}`); setActiveTab("explorer"); }
                       }}
-                      className={`h-9 w-9 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-all border text-[8px] font-bold outline-none ${
-                        isSelected ? 'border-white scale-105 shadow-md shadow-white/10 ring-1 ring-white/30' : 'border-transparent ' + hoverBorder
-                      } ${cellBg} text-white`}
+                      className={`h-9 w-9 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-all border text-[8px] font-bold outline-none ${isSelected ? 'border-white scale-105 shadow-md shadow-white/10 ring-1 ring-white/30' : 'border-transparent ' + hoverBorder} ${cellBg} text-white`}
                       title={`${ep.method} ${ep.endpoint} - Passed: ${ep.passed}/${ep.total - ep.skipped} (${successRate >= 0 ? successRate.toFixed(0) + '%' : 'Skipped'})`}
                     >
                       <span className="opacity-70 text-[7px] leading-none uppercase font-mono">{ep.method.slice(0, 3)}</span>
@@ -626,44 +1087,21 @@ export default function Report({
               </div>
             </div>
 
-            {/* Charts Row */}
+            {/* Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              
-              {/* Overall Breakdown Pie */}
               <div className="glass-panel rounded-2xl p-5 shadow-lg border-white/[0.04] bg-[#05070c]/35 glow-card-hover">
                 <h3 className="text-[10px] font-bold text-slate-450 uppercase tracking-widest mb-4 font-mono">Overall Results Distribution</h3>
                 <div className="h-56 flex items-center justify-center">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie
-                        data={pieData}
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={75}
-                        innerRadius={45}
-                        dataKey="value"
-                        label={({ name, value }) => `${name}: ${value}`}
-                      >
-                        {pieData.map((entry, i) => (
-                          <Cell key={i} fill={entry.color} />
-                        ))}
+                      <Pie data={pieData} cx="50%" cy="50%" outerRadius={75} innerRadius={45} dataKey="value" label={({ name, value }) => `${name}: ${value}`}>
+                        {pieData.map((entry, i) => (<Cell key={i} fill={entry.color} />))}
                       </Pie>
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: "#05070c",
-                          border: "1px solid rgba(255,255,255,0.06)",
-                          borderRadius: "8px",
-                          fontSize: "10px",
-                          fontFamily: "monospace",
-                          color: "#f3f4f6"
-                        }}
-                      />
+                      <Tooltip contentStyle={{ backgroundColor: "#05070c", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", fontSize: "10px", fontFamily: "monospace", color: "#f3f4f6" }} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
               </div>
-
-              {/* Performance Latency Bar */}
               <div className="glass-panel rounded-2xl p-5 shadow-lg border-white/[0.04] bg-[#05070c]/35 glow-card-hover">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-[10px] font-bold text-slate-450 uppercase tracking-widest font-mono">Top Slowest Endpoints</h3>
@@ -674,35 +1112,36 @@ export default function Report({
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={slowestEndpoints} layout="vertical" margin={{ left: -10, right: 10 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" />
-                        <XAxis type="number" stroke="#475569" tick={{ fontSize: 9, fontFamily: 'monospace' }} />
-                        <YAxis
-                          type="category"
-                          dataKey="name"
-                          stroke="#475569"
-                          tick={{ fontSize: 9, fontFamily: 'monospace' }}
-                          width={110}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: "#05070c",
-                            border: "1px solid rgba(255,255,255,0.06)",
-                            borderRadius: "8px",
-                            fontSize: "10px",
-                            fontFamily: "monospace",
-                            color: "#f3f4f6"
-                          }}
-                        />
+                        <XAxis type="number" stroke={chartAxisStroke} tick={chartAxisTick} />
+                        <YAxis type="category" dataKey="name" stroke={chartAxisStroke} tick={chartAxisTick} width={110} />
+                        <Tooltip contentStyle={{ backgroundColor: "#05070c", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", fontSize: "10px", fontFamily: "monospace", color: "#f3f4f6" }} />
                         <Bar dataKey="avg" fill="#3b82f6" radius={[0, 4, 4, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
                 ) : (
-                  <div className="h-56 flex items-center justify-center text-slate-600 font-mono text-xs select-none">
-                    No tested latency metrics to display.
-                  </div>
+                  <div className="h-56 flex items-center justify-center text-slate-600 font-mono text-xs select-none">No tested latency metrics to display.</div>
                 )}
               </div>
             </div>
+
+            {categoryChartData.length > 0 && (
+              <div className="glass-panel rounded-2xl p-5 shadow-lg border-white/[0.04] bg-[#05070c]/35 glow-card-hover">
+                <h3 className="text-[10px] font-bold text-slate-300 uppercase tracking-widest mb-4 font-mono">Results by Test Category</h3>
+                <div className="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={categoryChartData} margin={{ left: 4, right: 12, bottom: 8, top: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                      <XAxis dataKey="name" stroke={chartAxisStroke} tick={chartAxisTick} interval={0} axisLine={{ stroke: chartAxisStroke }} tickLine={{ stroke: chartAxisStroke }} />
+                      <YAxis stroke={chartAxisStroke} tick={chartAxisTick} axisLine={{ stroke: chartAxisStroke }} tickLine={{ stroke: chartAxisStroke }} />
+                      <Tooltip contentStyle={{ backgroundColor: "#05070c", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", fontSize: "10px", fontFamily: "monospace", color: "#f3f4f6" }} />
+                      <Bar dataKey="passed" stackId="a" fill="#10b981" name="Passed" />
+                      <Bar dataKey="failed" stackId="a" fill="#f43f5e" name="Failed" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
 
             {/* Swagger Spec Coverage Table */}
             <div className="glass-panel rounded-2xl p-5 shadow-lg border-white/[0.04] bg-[#05070c]/35 glow-card-hover">
@@ -713,7 +1152,6 @@ export default function Report({
                   <p className="text-[9px] text-slate-550">List of untreated or fully skipped endpoints declared inside the OpenAPI document.</p>
                 </div>
               </div>
-
               {coverageMetrics.untested.length > 0 ? (
                 <div className="overflow-x-auto scrollbar-thin">
                   <table className="w-full text-left text-xs font-mono">
@@ -728,9 +1166,7 @@ export default function Report({
                       {coverageMetrics.untested.map((ep, idx) => (
                         <tr key={idx} className="border-b border-white/[0.02] hover:bg-white/[0.01]">
                           <td className="py-2 px-3 font-mono">
-                            <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded leading-none ${getMethodBadgeClass(ep.method)}`}>
-                              {ep.method}
-                            </span>
+                            <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded leading-none ${getMethodBadgeClass(ep.method)}`}>{ep.method}</span>
                           </td>
                           <td className="py-2 px-3 text-slate-300">{ep.endpoint}</td>
                           <td className="py-2 px-3 text-right text-slate-500 italic text-[9px]">
@@ -750,7 +1186,7 @@ export default function Report({
           </div>
         )}
 
-        {/* ──── TAB 2: AI WATCHDOG AUDIT ──── */}
+        {/* ──── TAB 2: AI WATCHDOG ──── */}
         {activeTab === "insights" && (
           <div className="glass-panel rounded-2xl p-5 shadow-lg space-y-5 border-white/[0.04] bg-[#05070c]/35 glow-card-hover">
             <div className="flex items-center justify-between border-b border-white/[0.04] pb-3">
@@ -771,7 +1207,6 @@ export default function Report({
                 </button>
               )}
             </div>
-
             {aiInsightsLoading && (
               <div className="space-y-4 py-8 max-w-2xl animate-pulse">
                 <div className="h-4 bg-slate-900 rounded w-1/4"></div>
@@ -787,7 +1222,6 @@ export default function Report({
                 </div>
               </div>
             )}
-
             {!aiInsights && !aiInsightsLoading && (
               <div className="text-center py-16 text-slate-500 font-mono text-xs space-y-3">
                 <Sparkle className="h-8 w-8 text-slate-700 mx-auto" />
@@ -795,7 +1229,6 @@ export default function Report({
                 <p className="text-[10px] text-slate-600">Click the button above to request report audit via Google Gemini.</p>
               </div>
             )}
-
             {aiInsights && !aiInsightsLoading && (
               <div className="p-4 bg-[#05070c]/50 rounded-2xl border border-white/[0.03] leading-relaxed max-w-4xl shadow-inner">
                 <MarkdownBlock text={aiInsights} />
@@ -807,8 +1240,7 @@ export default function Report({
         {/* ──── TAB 3: SPLIT-SCREEN EXPLORER ──── */}
         {activeTab === "explorer" && (
           <div className="flex flex-col space-y-3 h-[calc(100vh-230px)] min-h-[500px]">
-            
-            {/* Filtering Control Row */}
+            {/* Filters */}
             <div className="glass-panel rounded-xl p-3 flex flex-col md:flex-row gap-3 shadow-lg border-white/[0.04] bg-[#05070c]/35">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-500" />
@@ -820,57 +1252,36 @@ export default function Report({
                   className="w-full bg-slate-950 border border-white/[0.06] rounded-xl pl-9 pr-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 font-mono text-xs transition-all"
                 />
               </div>
-
               <div className="flex gap-2 flex-wrap">
-                {/* Status Filter */}
-                <select
-                  value={explorerStatus}
-                  onChange={(e) => setExplorerStatus(e.target.value as any)}
-                  className="bg-slate-950 border border-white/[0.06] rounded-xl px-3 py-2 text-slate-350 text-xs focus:outline-none focus:border-blue-500/50 font-semibold"
-                >
+                <select value={explorerStatus} onChange={(e) => setExplorerStatus(e.target.value as any)} className="bg-slate-950 border border-white/[0.06] rounded-xl px-3 py-2 text-slate-350 text-xs focus:outline-none focus:border-blue-500/50 font-semibold">
                   <option value="all">All Statuses</option>
                   <option value="PASS">PASS</option>
                   <option value="FAIL">FAIL</option>
                   <option value="ERROR">ERROR</option>
                   <option value="SKIPPED">SKIPPED</option>
                 </select>
-
-                {/* Category Filter */}
-                <select
-                  value={explorerCategory}
-                  onChange={(e) => setExplorerCategory(e.target.value)}
-                  className="bg-slate-950 border border-white/[0.06] rounded-xl px-3 py-2 text-slate-350 text-xs focus:outline-none focus:border-blue-500/50 font-semibold"
-                >
+                <select value={explorerCategory} onChange={(e) => setExplorerCategory(e.target.value)} className="bg-slate-950 border border-white/[0.06] rounded-xl px-3 py-2 text-slate-350 text-xs focus:outline-none focus:border-blue-500/50 font-semibold">
                   <option value="all">All Categories</option>
-                  {categoriesList.map((c) => (
-                    <option key={c} value={c}>
-                      {CATEGORY_LABELS[c] || c}
-                    </option>
-                  ))}
+                  {categoriesList.map((c) => (<option key={c} value={c}>{CATEGORY_LABELS[c] || c}</option>))}
                 </select>
               </div>
             </div>
 
-            {/* Selected Heatmap Alert */}
             {selectedEndpointFilter && (
               <div className="bg-blue-950/20 border border-blue-900/40 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-blue-350 shadow-md animate-fadeIn">
                 <div className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse"></span>
                   <span>Filtered explorer by endpoint: <strong>{selectedEndpointFilter}</strong></span>
                 </div>
-                <button
-                  onClick={() => setSelectedEndpointFilter(null)}
-                  className="text-xs text-blue-400 hover:text-blue-300 font-bold underline cursor-pointer select-none"
-                >
+                <button onClick={() => setSelectedEndpointFilter(null)} className="text-xs text-blue-400 hover:text-blue-300 font-bold underline cursor-pointer select-none">
                   Clear Filter
                 </button>
               </div>
             )}
 
-            {/* Split Screen Workspace */}
+            {/* Split Screen */}
             <div className="flex-1 flex gap-4 min-h-0">
-              
-              {/* Left Pane - List (38% width) */}
+              {/* Left Pane */}
               <div className="w-[38%] glass-panel rounded-2xl overflow-hidden flex flex-col min-h-0 border-white/[0.04] bg-[#05070c]/35 shadow-lg">
                 <div className="bg-[#05070c]/80 border-b border-white/[0.04] px-4 py-2.5 flex items-center justify-between">
                   <span className="text-[9px] uppercase font-black tracking-widest text-slate-450 font-mono">AUDITED LOGS ({filteredTests.length})</span>
@@ -885,16 +1296,10 @@ export default function Report({
                           key={idx}
                           type="button"
                           onClick={() => setSelectedTestIndex(idx)}
-                          className={`w-full p-2.5 rounded-xl transition-all border text-left flex items-center gap-3 outline-none ${
-                            isSelected 
-                              ? 'bg-blue-600/10 border-blue-500/30 shadow shadow-blue-900/5 ring-1 ring-blue-500/20' 
-                              : 'bg-transparent border-transparent hover:bg-slate-900/20'
-                          }`}
+                          className={`w-full p-2.5 rounded-xl transition-all border text-left flex items-center gap-3 outline-none ${isSelected ? 'bg-blue-600/10 border-blue-500/30 shadow shadow-blue-900/5 ring-1 ring-blue-500/20' : 'bg-transparent border-transparent hover:bg-slate-900/20'}`}
                         >
                           <span className={`h-2 w-2 rounded-full flex-shrink-0 ${cfg.dot}`} />
-                          <span className={`text-[8px] font-bold uppercase px-1.5 py-0.5 rounded leading-none flex-shrink-0 font-mono ${getMethodBadgeClass(t.method)}`}>
-                            {t.method.slice(0, 3)}
-                          </span>
+                          <span className={`text-[8px] font-bold uppercase px-1.5 py-0.5 rounded leading-none flex-shrink-0 font-mono ${getMethodBadgeClass(t.method)}`}>{t.method.slice(0, 3)}</span>
                           <div className="flex-1 min-w-0">
                             <div className="font-mono text-[10px] font-bold text-slate-200 truncate tracking-tight">{t.path}</div>
                             <div className="text-[9px] text-slate-500 truncate mt-0.5 font-medium">{t.testName.replace(`${t.method} ${t.path} — `, "")}</div>
@@ -904,14 +1309,12 @@ export default function Report({
                       );
                     })
                   ) : (
-                    <div className="text-center py-16 font-mono text-[10px] text-slate-600 select-none">
-                      No logs found matching criteria.
-                    </div>
+                    <div className="text-center py-16 font-mono text-[10px] text-slate-600 select-none">No logs found matching criteria.</div>
                   )}
                 </div>
               </div>
 
-              {/* Right Pane - Detail Inspector (62% width) */}
+              {/* Right Pane */}
               <div className="flex-1 glass-panel rounded-2xl overflow-hidden flex flex-col min-h-0 border-white/[0.04] bg-[#05070c]/35 shadow-lg">
                 {!selectedTest ? (
                   <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-650 font-mono">
@@ -921,23 +1324,16 @@ export default function Report({
                   </div>
                 ) : (
                   <div className="flex-1 flex flex-col min-h-0">
-                    
-                    {/* Selected Header */}
                     <div className="bg-[#05070c]/60 border-b border-white/[0.04] p-4 flex items-center justify-between gap-3 flex-shrink-0">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded leading-none font-mono ${getMethodBadgeClass(selectedTest.method)}`}>
-                            {selectedTest.method}
-                          </span>
+                          <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded leading-none font-mono ${getMethodBadgeClass(selectedTest.method)}`}>{selectedTest.method}</span>
                           <span className="font-mono text-xs font-bold text-white truncate tracking-tight select-all">{selectedTest.path}</span>
                         </div>
                         <p className="text-[10px] text-slate-400 mt-1.5 truncate leading-none font-semibold">{selectedTest.testName}</p>
                       </div>
-
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        <span className={`text-[8px] uppercase font-bold tracking-widest px-2 py-1 rounded ${statusConfig[selectedTest.status].label}`}>
-                          {selectedTest.status}
-                        </span>
+                        <span className={`text-[8px] uppercase font-bold tracking-widest px-2 py-1 rounded ${statusConfig[selectedTest.status].label}`}>{selectedTest.status}</span>
                         <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-950/60 px-2 py-1 rounded border border-white/[0.05] flex items-center gap-1.5">
                           <Clock className="h-3.5 w-3.5 text-slate-500" />
                           {selectedTest.responseTime}ms
@@ -945,10 +1341,7 @@ export default function Report({
                       </div>
                     </div>
 
-                    {/* Scroller contents */}
                     <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
-                      
-                      {/* Objective */}
                       <div className="bg-[#05070c]/50 border border-white/[0.04] p-3.5 rounded-xl flex gap-3 shadow-inner">
                         <Info className="h-4.5 w-4.5 text-blue-455 flex-shrink-0 mt-0.5" />
                         <div>
@@ -957,7 +1350,6 @@ export default function Report({
                         </div>
                       </div>
 
-                      {/* Error Alert */}
                       {selectedTest.errorMessage && (
                         <div className="bg-rose-955/10 border border-rose-900/50 rounded-xl p-3.5 flex gap-3 shadow">
                           <AlertTriangle className="h-4.5 w-4.5 text-rose-500 flex-shrink-0 mt-0.5 animate-bounce-short" />
@@ -968,16 +1360,12 @@ export default function Report({
                         </div>
                       )}
 
-                      {/* Side-by-side payloads */}
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        
-                        {/* Request telemetry */}
                         <div className="space-y-3 bg-slate-950/20 p-3.5 rounded-xl border border-white/[0.03]">
                           <h4 className="text-[9px] uppercase font-extrabold tracking-widest text-slate-450 flex items-center gap-1.5 border-b border-white/[0.04] pb-2 font-mono">
                             <Globe className="h-3.5 w-3.5 text-blue-400" />
                             Outgoing Request
                           </h4>
-                          
                           <div className="space-y-3 text-xs">
                             <div>
                               <span className="text-[8px] text-slate-500 uppercase font-bold tracking-widest block mb-1.5 font-mono">Target URL Path</span>
@@ -986,31 +1374,25 @@ export default function Report({
                                 <CopyButton text={selectedTest.fullUrl} />
                               </div>
                             </div>
-
                             <div>
                               <span className="text-[8px] text-slate-500 uppercase font-bold tracking-widest block mb-1.5 font-mono">JSON Payload Body</span>
                               <JsonBlock data={selectedTest.requestBody} />
                             </div>
-
                             <div>
                               <div className="flex items-center justify-between mb-1.5">
                                 <span className="text-[8px] text-slate-500 uppercase font-bold tracking-widest font-mono">Equivalent cURL Command</span>
                                 <CopyButton text={buildCurl(selectedTest)} />
                               </div>
-                              <pre className="bg-[#040608] px-3.5 py-3 rounded-xl border border-white/[0.04] font-mono text-[9px] text-slate-400 overflow-auto whitespace-pre leading-relaxed max-h-32 scrollbar-thin">
-                                {buildCurl(selectedTest)}
-                              </pre>
+                              <pre className="bg-[#040608] px-3.5 py-3 rounded-xl border border-white/[0.04] font-mono text-[9px] text-slate-400 overflow-auto whitespace-pre leading-relaxed max-h-32 scrollbar-thin">{buildCurl(selectedTest)}</pre>
                             </div>
                           </div>
                         </div>
 
-                        {/* Response telemetry */}
                         <div className="space-y-3 bg-slate-950/20 p-3.5 rounded-xl border border-white/[0.03]">
                           <h4 className="text-[9px] uppercase font-extrabold tracking-widest text-slate-450 flex items-center gap-1.5 border-b border-white/[0.04] pb-2 font-mono">
                             <ArrowRight className="h-3.5 w-3.5 text-emerald-400" />
                             Incoming Response
                           </h4>
-                          
                           <div className="space-y-3 text-xs">
                             <div className="grid grid-cols-2 gap-3">
                               <div>
@@ -1022,66 +1404,54 @@ export default function Report({
                               </div>
                               <div>
                                 <span className="text-[8px] text-slate-500 uppercase font-bold tracking-widest block font-mono">Expected Code</span>
-                                <div className="bg-slate-950 p-2.5 rounded-lg border border-white/[0.04] font-mono text-sm font-bold text-slate-400 shadow-inner">
-                                  {selectedTest.expected.join(" OR ")}
-                                </div>
+                                <div className="bg-slate-950 p-2.5 rounded-lg border border-white/[0.04] font-mono text-sm font-bold text-slate-400 shadow-inner">{selectedTest.expected.join(" OR ")}</div>
                               </div>
                             </div>
-
                             <div>
                               <span className="text-[8px] text-slate-500 uppercase font-bold tracking-widest block mb-1.5 font-mono">Response Body Payload</span>
                               {selectedTest.responseBody !== null && selectedTest.responseBody !== undefined ? (
                                 <JsonBlock data={selectedTest.responseBody} />
                               ) : (
                                 <div className="text-slate-500 italic text-[9px] font-mono p-3 bg-slate-950/40 rounded-xl border border-white/[0.03] select-none shadow-inner">
-                                  {selectedTest.status === "PASS"
-                                    ? "— Response payload omitted for passed checks —"
-                                    : "— Empty response body —"}
+                                  {selectedTest.status === "PASS" ? "— Response payload omitted for passed checks —" : "— Empty response body —"}
                                 </div>
                               )}
                             </div>
-
                             <div>
-                              <span className="text-[8px] text-slate-500 uppercase font-bold tracking-widest block mb-1.5 font-mono">Telemetry Headers</span>
-                              <div className="bg-slate-950 rounded-lg border border-white/[0.04] overflow-hidden text-[9px] font-mono shadow-inner">
-                                <table className="w-full">
-                                  <tbody>
-                                    <tr className="border-b border-[#05070c]">
-                                      <td className="px-2.5 py-1.5 text-slate-500 font-bold uppercase tracking-wider w-24">Content-Type</td>
-                                      <td className="px-2.5 py-1.5 text-slate-350">application/json; charset=utf-8</td>
-                                    </tr>
-                                    <tr>
-                                      <td className="px-2.5 py-1.5 text-slate-500 font-bold uppercase tracking-wider">Latency</td>
-                                      <td className="px-2.5 py-1.5 text-slate-350">{selectedTest.responseTime}ms</td>
-                                    </tr>
-                                  </tbody>
-                                </table>
-                              </div>
+                              <span className="text-[8px] text-slate-500 uppercase font-bold tracking-widest block mb-1.5 font-mono">Response Headers</span>
+                              <ResponseHeadersTable headers={selectedTest.responseHeaders} responseTime={selectedTest.responseTime} />
                             </div>
                           </div>
                         </div>
-
                       </div>
 
-                      {/* AI Root Cause Panel */}
                       {selectedTestHasFailed && (
                         <div className="bg-[#05070c]/50 border border-white/[0.05] rounded-2xl p-4 space-y-3.5 shadow-lg glow-card-hover">
                           <div className="flex items-center justify-between border-b border-white/[0.04] pb-2">
                             <div className="flex items-center gap-2">
-                              <Sparkles className="h-4 w-4 text-purple-400 animate-pulse" />
-                              <span className="text-[9px] font-bold text-white tracking-widest uppercase font-mono">AI Root Cause Diagnostics</span>
+                              <Sparkles className="h-4 w-4 text-purple-400" />
+                              <span className="text-[9px] font-bold text-white tracking-widest uppercase font-mono">Failure Diagnostics</span>
                             </div>
-                            {!rootCause && (
+                            {onRequestRootCause && !rootCause?.loading && (
                               <button
                                 onClick={triggerDiagnostic}
                                 className="flex items-center gap-1.5 text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-1.5 bg-purple-650 hover:bg-purple-600 text-white rounded-lg transition-all active:scale-[0.98] shadow-md outline-none"
                               >
-                                <Cpu className="h-3.5 w-3.5 animate-spin-slow" />
-                                <span>Run AI Diagnostics</span>
+                                <Cpu className="h-3.5 w-3.5" />
+                                <span>{rootCause?.text ? 'Re-run AI' : 'Deepen with AI'}</span>
                               </button>
                             )}
                           </div>
-
+                          {activeDiagnostic && (
+                            <div className="p-4 bg-slate-950 border border-white/[0.04] rounded-xl text-xs space-y-2 text-slate-300">
+                              <p><strong className="text-white">Likely cause:</strong> {activeDiagnostic.likelyCause}</p>
+                              <p><strong className="text-white">Suggested fix:</strong> {activeDiagnostic.suggestedFix}</p>
+                              <p className="text-[9px] text-slate-500 font-mono pt-1 border-t border-white/[0.04]">
+                                {activeDiagnostic.severity.toUpperCase()} • Owner: {activeDiagnostic.ownerHint} • {activeDiagnostic.source} engine
+                                {aiDiagnostic ? ' (Gemini verified)' : ' (rule-based)'}
+                              </p>
+                            </div>
+                          )}
                           {rootCause && (
                             <div className="space-y-2">
                               {rootCause.loading ? (
@@ -1091,29 +1461,29 @@ export default function Report({
                                   <div className="h-2 bg-slate-900 rounded w-5/6"></div>
                                 </div>
                               ) : rootCause.text ? (
-                                <div className="p-4 bg-slate-950 border border-white/[0.04] rounded-xl font-sans leading-relaxed text-slate-300 shadow-inner">
+                                <div className="p-4 bg-slate-950/80 border border-purple-900/30 rounded-xl font-sans leading-relaxed text-slate-300 shadow-inner">
+                                  <span className="text-[8px] uppercase font-bold text-purple-400 tracking-widest block mb-2">AI narrative</span>
                                   <MarkdownBlock text={rootCause.text} />
                                 </div>
-                              ) : (
-                                <span className="text-[9px] text-rose-400 font-mono">Diagnostics execution failed.</span>
-                              )}
+                              ) : !activeDiagnostic ? (
+                                <span className="text-[9px] text-rose-400 font-mono">Diagnostics unavailable — check GEMINI_API_KEY or retry.</span>
+                              ) : null}
                             </div>
+                          )}
+                          {!activeDiagnostic && !rootCause && (
+                            <p className="text-[10px] text-slate-500">Select a failed test — rule engine insights appear automatically when available.</p>
                           )}
                         </div>
                       )}
-
                     </div>
-
                   </div>
                 )}
               </div>
-
             </div>
-
           </div>
         )}
 
-        {/* Dashboard bottom metadata info */}
+        {/* Footer */}
         <footer className="mt-6 pt-4 border-t border-white/[0.04] text-[9px] text-slate-500 flex justify-between flex-wrap gap-4 font-mono">
           <div className="flex gap-4">
             <span>Started: {new Date(report.startedAt).toLocaleString()}</span>
@@ -1129,3 +1499,4 @@ export default function Report({
     </div>
   );
 }
+
