@@ -18,7 +18,9 @@ export interface TestResult {
   errorMessage?: string;
   requestBody?: any;
   responseBody?: any;
+  responseHeaders?: Record<string, string>;
   isAiGenerated: boolean;
+  timestamp?: string;
 }
 
 @Injectable()
@@ -49,6 +51,7 @@ export class TestRunnerService {
         category: test.category,
         description: test.skipReason || 'Skipped',
         isAiGenerated: test.testName.startsWith('[AI]'),
+        timestamp: new Date().toISOString(),
       };
       onResult(result);
       return result;
@@ -110,8 +113,10 @@ export class TestRunnerService {
         category: test.category,
         description: test.description,
         requestBody: test.body,
-        responseBody: this.truncateBody(response.data),
+        responseBody: passed ? undefined : response.data,
+        responseHeaders: this.normalizeHeaders(response.headers),
         isAiGenerated: test.testName.startsWith('[AI]'),
+        timestamp: new Date().toISOString(),
         errorMessage: passed
           ? undefined
           : `Expected status ${test.expectedStatus.join(' or ')}, got ${actualStatus}${this.tokenExpiryDetected ? ' (possible token expiry - check token validity)' : ''}`,
@@ -143,6 +148,7 @@ export class TestRunnerService {
         errorMessage,
         requestBody: test.body,
         isAiGenerated: test.testName.startsWith('[AI]'),
+        timestamp: new Date().toISOString(),
       };
     }
 
@@ -151,13 +157,13 @@ export class TestRunnerService {
     return result;
   }
 
-  private truncateBody(body: any): any {
-    if (!body) return body;
-    const str = typeof body === 'string' ? body : JSON.stringify(body);
-    if (str.length > 500) {
-      return str.substring(0, 500) + '... [truncated]';
+  private normalizeHeaders(headers: Record<string, unknown>): Record<string, string> {
+    const normalized: Record<string, string> = {};
+    for (const [key, value] of Object.entries(headers)) {
+      if (value === undefined || value === null) continue;
+      normalized[key] = Array.isArray(value) ? value.join(', ') : String(value);
     }
-    return body;
+    return normalized;
   }
 
   resetState() {

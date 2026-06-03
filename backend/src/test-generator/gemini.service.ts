@@ -6,7 +6,11 @@ import { GeneratedTest } from './rule-engine.service';
 @Injectable()
 export class GeminiService {
   private readonly logger = new Logger(GeminiService.name);
-  private readonly apiKey = process.env.GEMINI_API_KEY;
+  private readonly apiKey = process.env.GEMINI_API_KEY?.trim();
+
+  isConfigured(): boolean {
+    return !!this.apiKey;
+  }
   private readonly apiUrl =
     'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
@@ -171,51 +175,74 @@ Provide a high-density, professional QA Executive Summary in Markdown. Do not in
     }
   }
 
-  async analyzeFailure(test: any): Promise<string> {
-    if (!this.apiKey) {
-      return '### ⚠️ Gemini API Key Not Set\nRoot cause analysis is unavailable because the `GEMINI_API_KEY` is not configured on the server.';
-    }
+  async analyzeFailureStructured(test: any): Promise<{
+    likelyCause: string;
+    ownerHint: 'backend' | 'openapi-spec' | 'auth' | 'infrastructure';
+    suggestedFix: string;
+    severity: 'critical' | 'high' | 'medium' | 'low';
+  } | null> {
+    if (!this.apiKey) return null;
 
-    const prompt = `You are a Principal Software Engineer and API Security Expert. 
-Analyze this specific failed test case and diagnose the root cause:
+    const prompt = `Analyze this FAILED API test. Use ONLY facts from the data below — do not invent endpoints or status codes.
 
-Test Name: ${test.testName}
+Test: ${test.testName}
 Category: ${test.category}
-Method: ${test.method}
-Path: ${test.path}
-Full URL: ${test.fullUrl}
-Expected Status: ${Array.isArray(test.expected) ? test.expected.join(' or ') : test.expected}
-Actual Status: ${test.actual ?? 'N/A'}
-Error Message: ${test.errorMessage || 'N/A'}
+${test.method} ${test.path}
+Expected HTTP: ${Array.isArray(test.expected) ? test.expected.join(' or ') : test.expected}
+Actual HTTP: ${test.actual ?? 'none'}
+Error: ${test.errorMessage || 'none'}
+Request body: ${JSON.stringify(test.requestBody ?? null)}
+Response body (truncated): ${JSON.stringify(test.responseBody ?? null).slice(0, 800)}
 
-Request Body:
-${JSON.stringify(test.requestBody || {}, null, 2)}
-
-Response Body:
-${JSON.stringify(test.responseBody || {}, null, 2)}
-
-Provide a concise, high-density Root Cause Diagnostics in Markdown. Do not wrap the entire response in markdown code blocks. Structure it into two clean sections:
-1. **Root Cause Analysis**: An explanation of why the test failed (e.g., input sanitization issue, missing database migration, validation rules discrepancy).
-2. **Recommended Action / Fix**: Clear, code-level fix or configuration adjustment to solve the bug.`;
+Return ONLY valid JSON (no markdown):
+{
+  "likelyCause": "one sentence factual root cause",
+  "ownerHint": "backend|openapi-spec|auth|infrastructure",
+  "suggestedFix": "one concrete fix step",
+  "severity": "critical|high|medium|low"
+}`;
 
     try {
       const response = await axios.post(
         `${this.apiUrl}?key=${this.apiKey}`,
         {
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.3,
-            maxOutputTokens: 1024,
-          },
+          generationConfig: { temperature: 0.2, maxOutputTokens: 512 },
         },
         { timeout: 20000 },
       );
 
-      return response.data?.candidates?.[0]?.content?.parts?.[0]?.text || 'No diagnostic output generated.';
+      const raw = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const start = raw.indexOf('{');
+      const end = raw.lastIndexOf('}');
+      if (start === -1 || end === -1) return null;
+
+      const parsed = JSON.parse(raw.slice(start, end + 1));
+      const owners = ['backend', 'openapi-spec', 'auth', 'infrastructure'];
+      const severities = ['critical', 'high', 'medium', 'low'];
+      if (!parsed.likelyCause || !parsed.suggestedFix) return null;
+
+      return {
+        likelyCause: String(parsed.likelyCause).slice(0, 500),
+        ownerHint: owners.includes(parsed.ownerHint) ? parsed.ownerHint : 'backend',
+        suggestedFix: String(parsed.suggestedFix).slice(0, 500),
+        severity: severities.includes(parsed.severity) ? parsed.severity : 'high',
+      };
     } catch (err) {
-      this.logger.error(`AI Failure Analysis failed: ${err.message}`);
-      return `### ⚠️ AI Diagnostics Failed\nFailed to run root cause analysis: ${err.message}`;
+      this.logger.warn(`Structured AI diagnostic failed: ${err.message}`);
+      return null;
     }
+  }
+
+  async analyzeFailure(test: any): Promise<string> {
+    const structured = await this.analyzeFailureStructured(test);
+    if (structured) {
+      return `### Root Cause Analysis\n${structured.likelyCause}\n\n**Owner:** ${structured.ownerHint} | **Severity:** ${structured.severity}\n\n### Recommended Fix\n${structured.suggestedFix}`;
+    }
+    if (!this.apiKey) {
+      return '### Gemini API Key Not Set\nConfigure `GEMINI_API_KEY` on the server for AI diagnostics, or use rule-based analysis.';
+    }
+    return '### AI Analysis Unavailable\nCould not produce structured diagnostics. Rule-based analysis is shown in the UI.';
   }
 }
 

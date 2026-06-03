@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { TestResult } from '../test-runner/test-runner.service';
+import { ParsedEndpoint } from '../swagger-parser/swagger-parser.dto';
+import { ContractDriftService, ContractDriftReport } from './contract-drift.service';
+import { FailureDiagnosticsService, FailureDiagnostic } from '../diagnostics/failure-diagnostics.service';
 
 export interface TestReport {
   title: string;
@@ -19,6 +22,16 @@ export interface TestReport {
   byCategory: CategorySummary[];
   failedTests: TestResult[];
   allTests: TestResult[];
+  contractDrift?: ContractDriftReport;
+  releaseReadiness?: ReleaseReadiness;
+  estimatedManualHoursSaved?: number;
+  topFailureInsights?: { testKey: string; diagnostic: FailureDiagnostic }[];
+}
+
+export interface ReleaseReadiness {
+  status: 'go' | 'warn' | 'no-go';
+  label: string;
+  reasons: string[];
 }
 
 export interface EndpointSummary {
@@ -40,6 +53,11 @@ export interface CategorySummary {
 
 @Injectable()
 export class ReporterService {
+  constructor(
+    private readonly contractDrift: ContractDriftService,
+    private readonly failureDiagnostics: FailureDiagnosticsService,
+  ) {}
+
   generateReport(
     results: TestResult[],
     swaggerUrl: string,
@@ -47,6 +65,7 @@ export class ReporterService {
     title: string,
     startedAt: Date,
     tokenExpiryWarning: boolean,
+    specEndpoints: ParsedEndpoint[] = [],
   ): TestReport {
     const completedAt = new Date();
     const nonSkipped = results.filter((r) => r.status !== 'SKIPPED');
@@ -59,7 +78,6 @@ export class ReporterService {
 
     const passRate = total > 0 ? Math.round((passed / total) * 100) : 0;
 
-    // Group by endpoint
     const endpointMap = new Map<string, EndpointSummary>();
     for (const r of results) {
       const key = `${r.method} ${r.path}`;
@@ -82,7 +100,6 @@ export class ReporterService {
       else if (r.status === 'SKIPPED') s.skipped++;
     }
 
-    // Group by category
     const categoryMap = new Map<string, CategorySummary>();
     for (const r of results.filter((r) => r.status !== 'SKIPPED')) {
       const key = r.category;
@@ -94,6 +111,24 @@ export class ReporterService {
       if (r.status === 'PASS') c.passed++;
       else c.failed++;
     }
+
+    const contractDrift =
+      specEndpoints.length > 0
+        ? this.contractDrift.analyze(specEndpoints, results)
+        : undefined;
+
+    const releaseReadiness = this.computeReleaseReadiness(
+      passRate,
+      failed,
+      errors,
+      contractDrift,
+    );
+
+    const failedTests = results.filter((r) => r.status === 'FAIL' || r.status === 'ERROR');
+    const topFailureInsights = failedTests.slice(0, 8).map((t) => ({
+      testKey: `${t.method}-${t.path}-${t.testName}`,
+      diagnostic: this.failureDiagnostics.analyzeWithRules(t),
+    }));
 
     return {
       title,
@@ -111,8 +146,40 @@ export class ReporterService {
       tokenExpiryWarning,
       byEndpoint: Array.from(endpointMap.values()),
       byCategory: Array.from(categoryMap.values()),
-      failedTests: results.filter((r) => r.status === 'FAIL' || r.status === 'ERROR'),
+      failedTests,
       allTests: results,
+      contractDrift,
+      releaseReadiness,
+      estimatedManualHoursSaved: Math.round((total * 2) / 6) / 10,
+      topFailureInsights,
     };
+  }
+
+  private computeReleaseReadiness(
+    passRate: number,
+    failed: number,
+    errors: number,
+    drift?: ContractDriftReport,
+  ): ReleaseReadiness {
+    const reasons: string[] = [];
+    const criticalDrift =
+      drift?.items.filter((i) => i.severity === 'critical').length ?? 0;
+
+    if (passRate < 60) reasons.push(`Pass rate is ${passRate}% (below 60%)`);
+    if (failed + errors > 0) reasons.push(`${failed + errors} failing tests need fixes`);
+    if (criticalDrift > 0) {
+      reasons.push(`${criticalDrift} critical OpenAPI contract drift issue(s)`);
+    }
+    if (drift && drift.endpointsTested < drift.endpointsInSpec * 0.5) {
+      reasons.push('Less than half of spec endpoints were tested');
+    }
+
+    if (reasons.length === 0 && passRate >= 85) {
+      return { status: 'go', label: 'Release Ready', reasons: ['Pass rate and contract alignment look good'] };
+    }
+    if (passRate >= 70 && criticalDrift === 0) {
+      return { status: 'warn', label: 'Review Recommended', reasons };
+    }
+    return { status: 'no-go', label: 'Not Release Ready', reasons: reasons.length ? reasons : ['Audit found blocking issues'] };
   }
 }

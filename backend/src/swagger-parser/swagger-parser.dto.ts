@@ -58,6 +58,10 @@ export class RunTestsDto {
 
   @IsOptional()
   skipAiGeneration?: boolean = false;
+
+  @IsOptional()
+  @IsString()
+  runProfile?: 'smoke' | 'full';
 }
 
 export interface ParsedEndpoint {
