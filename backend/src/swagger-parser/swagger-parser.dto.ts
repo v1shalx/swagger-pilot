@@ -62,6 +62,57 @@ export class RunTestsDto {
   @IsOptional()
   @IsString()
   runProfile?: 'smoke' | 'full';
+
+  /** e.g. ["GET /users/{id}", "POST /users"] — empty/undefined = run all */
+  @IsOptional()
+  selectedEndpoints?: string[];
+
+  /** Second identity for IDOR testing */
+  @IsOptional()
+  @IsEnum(AuthType)
+  secondAuthType?: AuthType;
+
+  @IsOptional()
+  @IsString()
+  secondAuthValue?: string;
+
+  @IsOptional()
+  @IsString()
+  secondApiKeyName?: string;
+
+  @IsOptional()
+  @IsEnum(ApiKeyLocation)
+  secondApiKeyLocation?: ApiKeyLocation;
+
+  @IsOptional()
+  @IsString()
+  secondLoginUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  secondLoginUsername?: string;
+
+  @IsOptional()
+  @IsString()
+  secondLoginPassword?: string;
+
+  /** Run IDOR/authorization tests */
+  @IsOptional()
+  runIdorTests?: boolean;
+
+  /** Run request-chain tests (create→read→delete) */
+  @IsOptional()
+  runChainTests?: boolean;
+
+  /** Save baseline to this file path (CLI) */
+  @IsOptional()
+  @IsString()
+  saveBaseline?: string;
+
+  /** Compare against baseline file path (CLI) */
+  @IsOptional()
+  @IsString()
+  baselineFile?: string;
 }
 
 export interface ParsedEndpoint {

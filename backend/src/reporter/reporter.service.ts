@@ -4,6 +4,16 @@ import { ParsedEndpoint } from '../swagger-parser/swagger-parser.dto';
 import { ContractDriftService, ContractDriftReport } from './contract-drift.service';
 import { FailureDiagnosticsService, FailureDiagnostic } from '../diagnostics/failure-diagnostics.service';
 
+export interface SpecCoverage {
+  endpointsTested: number;
+  endpointsInSpec: number;
+  endpointCoveragePercent: number;
+  statusCodesTested: number;
+  statusCodesDocumented: number;
+  statusCodeCoveragePercent: number;
+  headline: string;
+}
+
 export interface TestReport {
   title: string;
   swaggerUrl: string;
@@ -24,8 +34,10 @@ export interface TestReport {
   allTests: TestResult[];
   contractDrift?: ContractDriftReport;
   releaseReadiness?: ReleaseReadiness;
-  estimatedManualHoursSaved?: number;
+  specCoverage?: SpecCoverage;
   topFailureInsights?: { testKey: string; diagnostic: FailureDiagnostic }[];
+  /** @deprecated use specCoverage */
+  estimatedManualHoursSaved?: number;
 }
 
 export interface ReleaseReadiness {
@@ -117,12 +129,21 @@ export class ReporterService {
         ? this.contractDrift.analyze(specEndpoints, results)
         : undefined;
 
+    // IDOR / authorization leaks → always no-go
+    const idorLeaks = results.filter(
+      (r) => r.category === 'authorization_leak' && r.status === 'FAIL',
+    );
+
     const releaseReadiness = this.computeReleaseReadiness(
       passRate,
       failed,
       errors,
       contractDrift,
+      idorLeaks.length,
     );
+
+    // ── Feature 5: Spec coverage ─────────────────────────────────────────────
+    const specCoverage = this.computeSpecCoverage(specEndpoints, results);
 
     const failedTests = results.filter((r) => r.status === 'FAIL' || r.status === 'ERROR');
     const topFailureInsights = failedTests.slice(0, 8).map((t) => ({
@@ -150,8 +171,55 @@ export class ReporterService {
       allTests: results,
       contractDrift,
       releaseReadiness,
-      estimatedManualHoursSaved: Math.round((total * 2) / 6) / 10,
+      specCoverage,
       topFailureInsights,
+    };
+  }
+
+  private computeSpecCoverage(specEndpoints: any[], results: TestResult[]): SpecCoverage | undefined {
+    if (specEndpoints.length === 0) return undefined;
+
+    const testedKeys = new Set(
+      results
+        .filter((r) => r.status !== 'SKIPPED')
+        .map((r) => `${r.method} ${r.path}`),
+    );
+    const endpointsTested = testedKeys.size;
+    const endpointsInSpec = specEndpoints.length;
+    const endpointCoverage = endpointsInSpec > 0
+      ? Math.round((endpointsTested / endpointsInSpec) * 100)
+      : 0;
+
+    // Count documented status codes vs exercised
+    let statusCodesDocumented = 0;
+    let statusCodesTested = 0;
+
+    for (const ep of specEndpoints) {
+      const docCodes = Object.keys(ep.responses || {})
+        .filter((k) => /^\d{3}$/.test(k))
+        .map(Number);
+      statusCodesDocumented += docCodes.length;
+
+      const exercised = new Set(
+        results
+          .filter((r) => r.method === ep.method && r.path === ep.path && r.actual !== null)
+          .map((r) => r.actual!),
+      );
+      statusCodesTested += docCodes.filter((c) => exercised.has(c)).length;
+    }
+
+    const statusCodeCoveragePercent = statusCodesDocumented > 0
+      ? Math.round((statusCodesTested / statusCodesDocumented) * 100)
+      : 0;
+
+    return {
+      endpointsTested,
+      endpointsInSpec,
+      endpointCoveragePercent: endpointCoverage,
+      statusCodesTested,
+      statusCodesDocumented,
+      statusCodeCoveragePercent,
+      headline: `Spec coverage: ${endpointCoverage}% endpoints, ${statusCodeCoveragePercent}% status codes`,
     };
   }
 
@@ -160,6 +228,7 @@ export class ReporterService {
     failed: number,
     errors: number,
     drift?: ContractDriftReport,
+    idorLeaks = 0,
   ): ReleaseReadiness {
     const reasons: string[] = [];
     const criticalDrift =
@@ -173,7 +242,14 @@ export class ReporterService {
     if (drift && drift.endpointsTested < drift.endpointsInSpec * 0.5) {
       reasons.push('Less than half of spec endpoints were tested');
     }
+    if (idorLeaks > 0) {
+      reasons.push(`🚨 ${idorLeaks} Broken Object Level Authorization (IDOR) vulnerability/ies detected — immediate fix required`);
+    }
 
+    // IDOR leaks are always blocking
+    if (idorLeaks > 0) {
+      return { status: 'no-go', label: 'NOT RELEASE READY — SECURITY VULNERABILITY', reasons };
+    }
     if (reasons.length === 0 && passRate >= 85) {
       return { status: 'go', label: 'Release Ready', reasons: ['Pass rate and contract alignment look good'] };
     }

@@ -11,6 +11,20 @@ export interface RunTestsConfig {
   delayBetweenTests?: number;
   skipAiGeneration?: boolean;
   runProfile?: 'smoke' | 'full';
+  /** Feature 1: filter to specific endpoints, e.g. ["GET /users/{id}"] */
+  selectedEndpoints?: string[];
+  /** Feature 2: enable chain tests (default true) */
+  runChainTests?: boolean;
+  /** Feature 3: IDOR testing */
+  runIdorTests?: boolean;
+  secondAuthType?: 'none' | 'bearer' | 'apikey' | 'basic' | 'autologin';
+  secondAuthValue?: string;
+  secondLoginUrl?: string;
+  secondLoginUsername?: string;
+  secondLoginPassword?: string;
+  /** Feature 4: regression baseline files */
+  saveBaseline?: string;
+  baselineFile?: string;
 }
 
 export interface TestResult {
@@ -66,6 +80,32 @@ export interface ReleaseReadiness {
   reasons: string[];
 }
 
+export interface SpecCoverage {
+  endpointsTested: number;
+  endpointsInSpec: number;
+  endpointCoveragePercent: number;
+  statusCodesTested: number;
+  statusCodesDocumented: number;
+  statusCodeCoveragePercent: number;
+  headline: string;
+}
+
+export interface RegressionDiffItem {
+  key: string;
+  type: 'newly_failing' | 'newly_passing' | 'status_changed';
+  before: { status: string; actual: number | null };
+  after: { status: string; actual: number | null };
+}
+
+export interface RegressionDiff {
+  baselineFile: string;
+  newlyFailing: RegressionDiffItem[];
+  newlyPassing: RegressionDiffItem[];
+  statusChanged: RegressionDiffItem[];
+  unchanged: number;
+  summary: string;
+}
+
 export interface TestReport {
   title: string;
   swaggerUrl: string;
@@ -86,8 +126,11 @@ export interface TestReport {
   allTests: TestResult[];
   contractDrift?: ContractDriftReport;
   releaseReadiness?: ReleaseReadiness;
-  estimatedManualHoursSaved?: number;
+  specCoverage?: SpecCoverage;
+  regressionDiff?: RegressionDiff;
   topFailureInsights?: { testKey: string; diagnostic: FailureDiagnostic }[];
+  /** @deprecated */
+  estimatedManualHoursSaved?: number;
 }
 
 export interface EndpointSummary {
@@ -143,4 +186,6 @@ export const CATEGORY_LABELS: Record<string, string> = {
   'happy-path': '✅ Happy Path',
   'ai-edge-case': '🤖 AI Edge Case',
   skipped: '⏭️ Skipped',
+  flow: '🔗 Chain Flow',
+  authorization_leak: '🚨 IDOR / AuthZ',
 };

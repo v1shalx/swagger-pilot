@@ -25,6 +25,7 @@ interface HomeProps {
   onDryRun: (config: RunTestsConfig) => void;
   dryRunResult: any;
   isRunning: boolean;
+  allEndpoints?: string[];
 }
 
 const SAMPLE_URLS = [
@@ -47,6 +48,7 @@ export default function Home({
   onDryRun,
   dryRunResult,
   isRunning,
+  allEndpoints = [],
 }: HomeProps) {
   const [mode, setMode] = useState<Mode>("auto");
   const [config, setConfig] = useState<RunTestsConfig>({
@@ -62,13 +64,44 @@ export default function Home({
     delayBetweenTests: 150,
     skipAiGeneration: false,
     runProfile: 'full',
+    runChainTests: true,
+    runIdorTests: false,
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [customTestsContent, setCustomTestsContent] = useState<string | null>(
-    null,
-  );
+  const [customTestsContent, setCustomTestsContent] = useState<string | null>(null);
   const [customTestsType, setCustomTestsType] = useState<"json" | "csv">("csv");
   const [customTestsCount, setCustomTestsCount] = useState(0);
+
+  // Feature 1: endpoint selection
+  const [selectedEndpoints, setSelectedEndpoints] = useState<Set<string>>(new Set());
+  const [endpointSelectAll, setEndpointSelectAll] = useState(true);
+
+  // Sync selection when allEndpoints changes (after parse)
+  React.useEffect(() => {
+    if (allEndpoints.length > 0) {
+      setSelectedEndpoints(new Set(allEndpoints));
+      setEndpointSelectAll(true);
+    }
+  }, [allEndpoints]);
+
+  const toggleEndpoint = (ep: string) => {
+    setSelectedEndpoints((prev) => {
+      const next = new Set(prev);
+      if (next.has(ep)) next.delete(ep); else next.add(ep);
+      setEndpointSelectAll(next.size === allEndpoints.length);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (endpointSelectAll) {
+      setSelectedEndpoints(new Set());
+      setEndpointSelectAll(false);
+    } else {
+      setSelectedEndpoints(new Set(allEndpoints));
+      setEndpointSelectAll(true);
+    }
+  };
 
   const isLocalUrl =
     config.swaggerUrl.includes("localhost") ||
@@ -104,11 +137,17 @@ export default function Home({
       return;
     }
 
+    const chosenEndpoints =
+      allEndpoints.length > 0 && !endpointSelectAll
+        ? Array.from(selectedEndpoints)
+        : undefined;
+
     onRunTests({
       ...config,
       swaggerUrl: mode === "manual" ? "__manual_only__" : config.swaggerUrl,
       customTests: customTestsContent || undefined,
       customTestsType: customTestsContent ? customTestsType : undefined,
+      selectedEndpoints: chosenEndpoints,
     } as any);
   };
 
@@ -323,6 +362,53 @@ export default function Home({
                 }
                 className="w-full bg-slate-950 border border-white/[0.06] rounded-xl px-4 py-2.5 text-white placeholder-slate-650 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 font-mono text-xs shadow-inner"
               />
+            </div>
+          </div>
+        )}
+
+        {/* ── ENDPOINT SELECTOR (Feature 1) — shown once spec is parsed ── */}
+        {allEndpoints.length > 0 && mode !== "manual" && (
+          <div className="glass-panel rounded-2xl p-5 shadow-xl relative overflow-hidden border border-white/[0.04] glow-card-hover bg-[#05070c]/35 animate-fadeIn">
+            <div className="flex items-center justify-between mb-3 pb-3 border-b border-white/[0.04]">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-purple-600/10 border border-purple-500/20 text-purple-400 flex-shrink-0">
+                  <Layers className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-extrabold text-white tracking-tight uppercase">Endpoint Selection</h3>
+                  <p className="text-[9px] text-slate-500">{selectedEndpoints.size} of {allEndpoints.length} selected</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                className="text-[9px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg bg-slate-900/60 border border-white/[0.06] text-slate-400 hover:text-white transition-colors"
+              >
+                {endpointSelectAll ? "Deselect All" : "Select All"}
+              </button>
+            </div>
+            <div className="max-h-48 overflow-y-auto space-y-1 scrollbar-thin pr-1">
+              {allEndpoints.map((ep) => {
+                const [method, ...pathParts] = ep.split(' ');
+                const path = pathParts.join(' ');
+                const isChecked = selectedEndpoints.has(ep);
+                const methodColor: Record<string, string> = {
+                  GET: 'text-blue-400', POST: 'text-green-400', PUT: 'text-yellow-400',
+                  DELETE: 'text-red-400', PATCH: 'text-orange-400',
+                };
+                return (
+                  <label key={ep} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-900/40 cursor-pointer group transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => toggleEndpoint(ep)}
+                      className="accent-blue-500 w-3.5 h-3.5 flex-shrink-0 rounded"
+                    />
+                    <span className={`text-[10px] font-black font-mono w-14 flex-shrink-0 ${methodColor[method] || 'text-slate-400'}`}>{method}</span>
+                    <span className="text-[10px] font-mono text-slate-300 group-hover:text-white transition-colors truncate">{path}</span>
+                  </label>
+                );
+              })}
             </div>
           </div>
         )}
@@ -641,6 +727,76 @@ export default function Home({
                     />
                   </button>
                 </div>
+
+                {/* Feature 2: Chain tests toggle */}
+                <div className="flex items-center justify-between gap-4 pt-2 border-t border-white/[0.04]">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-300 font-sans">🔗 Chain Tests</h4>
+                    <p className="text-[9px] text-slate-500 mt-0.5">Run create→read→delete flows automatically.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setConfig((c) => ({ ...c, runChainTests: !c.runChainTests }))}
+                    className={`w-10 h-5.5 rounded-full transition-all relative flex items-center flex-shrink-0 outline-none custom-switch ${config.runChainTests ? "bg-blue-600" : "bg-slate-800"}`}
+                  >
+                    <div className={`w-4 h-4 bg-white rounded-full transition-transform absolute ${config.runChainTests ? "right-0.5" : "left-0.5"}`} />
+                  </button>
+                </div>
+
+                {/* Feature 3: IDOR toggle */}
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <h4 className="text-xs font-bold text-red-400 font-sans">🚨 IDOR / AuthZ Tests</h4>
+                    <p className="text-[9px] text-slate-500 mt-0.5">Requires a second identity (User B).</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setConfig((c) => ({ ...c, runIdorTests: !c.runIdorTests }))}
+                    className={`w-10 h-5.5 rounded-full transition-all relative flex items-center flex-shrink-0 outline-none custom-switch ${config.runIdorTests ? "bg-red-600" : "bg-slate-800"}`}
+                  >
+                    <div className={`w-4 h-4 bg-white rounded-full transition-transform absolute ${config.runIdorTests ? "right-0.5" : "left-0.5"}`} />
+                  </button>
+                </div>
+
+                {/* IDOR second identity fields */}
+                {config.runIdorTests && (
+                  <div className="space-y-2.5 pt-2 border-t border-red-900/30 animate-fadeIn">
+                    <p className="text-[9px] text-red-400 font-bold uppercase tracking-wider">User B (Second Identity)</p>
+                    <div>
+                      <label className="text-[9px] text-slate-455 font-bold uppercase tracking-wider block mb-1">Auth Type</label>
+                      <select
+                        value={config.secondAuthType || 'bearer'}
+                        onChange={(e) => setConfig((c) => ({ ...c, secondAuthType: e.target.value as any }))}
+                        className="w-full bg-slate-955 border border-white/[0.06] rounded-xl px-2.5 py-2 text-slate-300 text-[10px] focus:outline-none focus:border-red-500/50"
+                      >
+                        <option value="bearer">Bearer Token</option>
+                        <option value="autologin">Auto Login</option>
+                        <option value="apikey">API Key</option>
+                      </select>
+                    </div>
+                    {(!config.secondAuthType || config.secondAuthType === 'bearer') && (
+                      <div>
+                        <label className="text-[9px] text-slate-455 font-bold uppercase tracking-wider block mb-1">Bearer Token (User B)</label>
+                        <input
+                          type="text"
+                          placeholder="Bearer eyJ..."
+                          value={config.secondAuthValue || ''}
+                          onChange={(e) => setConfig((c) => ({ ...c, secondAuthValue: e.target.value }))}
+                          className="w-full bg-slate-950 border border-red-900/30 rounded-xl px-3 py-2 text-white placeholder-slate-650 focus:outline-none focus:border-red-500/50 font-mono text-[10px]"
+                        />
+                      </div>
+                    )}
+                    {config.secondAuthType === 'autologin' && (
+                      <div className="space-y-2">
+                        <input type="text" placeholder="Login URL" value={config.secondLoginUrl || ''} onChange={(e) => setConfig((c) => ({ ...c, secondLoginUrl: e.target.value }))} className="w-full bg-slate-950 border border-red-900/30 rounded-xl px-3 py-1.5 text-white font-mono text-[10px] focus:outline-none" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <input type="text" placeholder="Username B" value={config.secondLoginUsername || ''} onChange={(e) => setConfig((c) => ({ ...c, secondLoginUsername: e.target.value }))} className="bg-slate-950 border border-red-900/30 rounded-xl px-3 py-1.5 text-white text-[10px] focus:outline-none" />
+                          <input type="password" placeholder="Password B" value={config.secondLoginPassword || ''} onChange={(e) => setConfig((c) => ({ ...c, secondLoginPassword: e.target.value }))} className="bg-slate-950 border border-red-900/30 rounded-xl px-3 py-1.5 text-white text-[10px] focus:outline-none" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>

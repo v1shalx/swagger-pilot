@@ -107,6 +107,7 @@ export default function App() {
               onDryRun={dryRun}
               dryRunResult={state.dryRunResult}
               isRunning={isRunning}
+              allEndpoints={state.allEndpoints}
             />
           )}
 

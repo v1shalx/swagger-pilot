@@ -6,6 +6,7 @@ import { RunTestsDto, AuthType, ApiKeyLocation } from '../swagger-parser/swagger
 export class AuthHandlerService {
   private readonly logger = new Logger(AuthHandlerService.name);
   private cachedToken: string | null = null;
+  private cachedSecondToken: string | null = null;
 
   async resolveAuthHeaders(dto: RunTestsDto): Promise<Record<string, string>> {
     switch (dto.authType) {
@@ -84,7 +85,53 @@ export class AuthHandlerService {
     }
   }
 
+  /** Resolve auth headers for the second identity (for IDOR testing) */
+  async resolveSecondAuthHeaders(dto: RunTestsDto): Promise<Record<string, string>> {
+    const secondDto: RunTestsDto = {
+      ...dto,
+      authType: dto.secondAuthType ?? AuthType.NONE,
+      authValue: dto.secondAuthValue,
+      apiKeyName: dto.secondApiKeyName,
+      apiKeyLocation: dto.secondApiKeyLocation,
+      loginUrl: dto.secondLoginUrl,
+      loginUsername: dto.secondLoginUsername,
+      loginPassword: dto.secondLoginPassword,
+    };
+
+    if (secondDto.authType === AuthType.AUTO_LOGIN) {
+      return this.autoLoginSecond(secondDto);
+    }
+    return this.resolveAuthHeaders(secondDto);
+  }
+
+  private async autoLoginSecond(dto: RunTestsDto): Promise<Record<string, string>> {
+    if (this.cachedSecondToken) {
+      return { Authorization: `Bearer ${this.cachedSecondToken}` };
+    }
+    if (!dto.loginUrl) return {};
+    try {
+      const response = await axios.post(dto.loginUrl, {
+        username: dto.loginUsername,
+        password: dto.loginPassword,
+        email: dto.loginUsername,
+      }, { timeout: 10000 });
+      const data = response.data;
+      const token =
+        data?.access_token || data?.token || data?.jwt ||
+        data?.accessToken || data?.data?.token || data?.data?.access_token;
+      if (token) {
+        this.cachedSecondToken = token;
+        return { Authorization: `Bearer ${token}` };
+      }
+      return {};
+    } catch (err) {
+      this.logger.error(`Second auto-login failed: ${err.message}`);
+      return {};
+    }
+  }
+
   clearCache() {
     this.cachedToken = null;
+    this.cachedSecondToken = null;
   }
 }

@@ -20,6 +20,8 @@ interface SocketState {
   phase: Phase;
   statusMessage: string;
   specInfo: any;
+  /** endpoint strings like "GET /users/{id}" populated after parse */
+  allEndpoints: string[];
   results: TestResult[];
   report: TestReport | null;
   dryRunResult: DryRunResult | null;
@@ -66,6 +68,7 @@ export function useSocket() {
     phase: 'idle',
     statusMessage: '',
     specInfo: null,
+    allEndpoints: [],
     results: [],
     report: null,
     dryRunResult: null,
@@ -114,6 +117,7 @@ export function useSocket() {
         statusMessage: data.message,
         specInfo: data.spec || s.specInfo,
         totalTests: data.totalTests || s.totalTests,
+        allEndpoints: data.spec?.allEndpoints || s.allEndpoints,
       }));
 
       if (data.phase === 'ready') {
@@ -187,6 +191,7 @@ export function useSocket() {
       phase: 'connecting',
       statusMessage: '🔌 Connecting...',
       specInfo: null,
+      allEndpoints: s.allEndpoints, // keep for re-use if re-running same spec
       results: [],
       report: null,
       dryRunResult: null,
@@ -217,6 +222,7 @@ export function useSocket() {
       phase: 'idle',
       statusMessage: '',
       specInfo: null,
+      allEndpoints: [],
       results: [],
       report: null,
       dryRunResult: null,
@@ -260,4 +266,5 @@ export function useSocket() {
   }, [connect]);
 
   return { state, runTests, dryRun, cancelTests, reset, requestAiInsights, requestRootCause };
+  // state.allEndpoints contains ["GET /users/{id}", ...] after spec is parsed
 }

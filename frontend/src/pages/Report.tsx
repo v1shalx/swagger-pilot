@@ -407,7 +407,7 @@ export default function Report({
   rootCauses,
   onRequestRootCause,
 }: ReportProps) {
-  const [activeTab, setActiveTab] = useState<"summary" | "explorer" | "insights">("summary");
+  const [activeTab, setActiveTab] = useState<"summary" | "explorer" | "insights" | "regression">("summary");
   
   // Test Explorer Filters
   const [explorerSearch, setExplorerSearch] = useState("");
@@ -759,8 +759,10 @@ export default function Report({
               <p className="text-sm text-slate-300 leading-relaxed max-w-2xl">
                 Automated audit of <strong className="text-white">{report.title}</strong> completed in{" "}
                 <strong className="text-white">{durationSec}s</strong> with{" "}
-                <strong className="text-white">{report.totalTests}</strong> tests — replacing roughly{" "}
-                <strong className="text-emerald-400">~{hoursSaved} hours</strong> of manual QA scripting.
+                <strong className="text-white">{report.totalTests}</strong> tests.
+                {report.specCoverage && (
+                  <> <strong className="text-blue-400">{report.specCoverage.headline}</strong>.</>
+                )}
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="bg-slate-950/60 rounded-xl p-3 border border-white/[0.05]">
@@ -928,11 +930,12 @@ export default function Report({
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-white/[0.05]">
+        <div className="flex border-b border-white/[0.05] flex-wrap">
           {[
             { id: "summary", label: "Executive Dashboard", icon: Activity },
             { id: "insights", label: "AI Watchdog Audit", icon: Sparkles },
-            { id: "explorer", label: `Telemetry Explorer (${report.totalTests})`, icon: FileText }
+            { id: "explorer", label: `Telemetry Explorer (${report.totalTests})`, icon: FileText },
+            ...(report.regressionDiff ? [{ id: "regression", label: `Regression Diff`, icon: GitCompare }] : []),
           ].map((tab) => {
             const Icon = tab.icon;
             return (
@@ -1484,6 +1487,96 @@ export default function Report({
         )}
 
         {/* Footer */}
+        {/* ──── TAB 4: REGRESSION DIFF ──── */}
+        {activeTab === "regression" && report.regressionDiff && (
+          <div className="space-y-5">
+            <div className="glass-panel rounded-2xl p-5 shadow-lg border border-white/[0.04] bg-[#05070c]/35">
+              <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-white/[0.04]">
+                <GitCompare className="h-4.5 w-4.5 text-purple-400" />
+                <div>
+                  <h3 className="text-xs font-bold text-white uppercase tracking-tight">Regression Diff</h3>
+                  <p className="text-[9px] text-slate-400">{report.regressionDiff.summary}</p>
+                </div>
+              </div>
+
+              {/* Stats row */}
+              <div className="grid grid-cols-3 gap-3 mb-5">
+                <div className="bg-rose-950/20 border border-rose-500/20 rounded-xl p-3">
+                  <div className="text-2xl font-black font-mono text-rose-400">{report.regressionDiff.newlyFailing.length}</div>
+                  <div className="text-[9px] uppercase font-bold text-slate-400 mt-1">New Failures</div>
+                </div>
+                <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-3">
+                  <div className="text-2xl font-black font-mono text-emerald-400">{report.regressionDiff.newlyPassing.length}</div>
+                  <div className="text-[9px] uppercase font-bold text-slate-400 mt-1">Fixed</div>
+                </div>
+                <div className="bg-amber-950/20 border border-amber-500/20 rounded-xl p-3">
+                  <div className="text-2xl font-black font-mono text-amber-400">{report.regressionDiff.statusChanged.length}</div>
+                  <div className="text-[9px] uppercase font-bold text-slate-400 mt-1">Status Changed</div>
+                </div>
+              </div>
+
+              {/* New failures */}
+              {report.regressionDiff.newlyFailing.length > 0 && (
+                <div className="mb-4">
+                  <h4 className="text-[10px] font-bold text-rose-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <XCircle className="h-3.5 w-3.5" /> New Failures
+                  </h4>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {report.regressionDiff.newlyFailing.map((d, i) => (
+                      <div key={i} className="bg-rose-950/10 border border-rose-900/30 rounded-lg px-3 py-2 text-[10px] font-mono">
+                        <span className="text-rose-300 font-bold">{d.key}</span>
+                        <span className="text-slate-500 ml-2">{d.before.status} → {d.after.status} (was {d.before.actual}, now {d.after.actual})</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Fixed */}
+              {report.regressionDiff.newlyPassing.length > 0 && (
+                <div className="mb-4">
+                  <h4 className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Fixed Tests
+                  </h4>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {report.regressionDiff.newlyPassing.map((d, i) => (
+                      <div key={i} className="bg-emerald-950/10 border border-emerald-900/30 rounded-lg px-3 py-2 text-[10px] font-mono">
+                        <span className="text-emerald-300 font-bold">{d.key}</span>
+                        <span className="text-slate-500 ml-2">{d.before.status} → {d.after.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Status changed */}
+              {report.regressionDiff.statusChanged.length > 0 && (
+                <div>
+                  <h4 className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5" /> Status Code Changes
+                  </h4>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {report.regressionDiff.statusChanged.map((d, i) => (
+                      <div key={i} className="bg-amber-950/10 border border-amber-900/30 rounded-lg px-3 py-2 text-[10px] font-mono">
+                        <span className="text-amber-300 font-bold">{d.key}</span>
+                        <span className="text-slate-500 ml-2">{d.before.actual} → {d.after.actual}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {report.regressionDiff.newlyFailing.length === 0 &&
+               report.regressionDiff.newlyPassing.length === 0 &&
+               report.regressionDiff.statusChanged.length === 0 && (
+                <div className="text-center py-8 text-emerald-400 font-bold text-sm">
+                  ✅ No regressions — {report.regressionDiff.unchanged} tests unchanged
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <footer className="mt-6 pt-4 border-t border-white/[0.04] text-[9px] text-slate-500 flex justify-between flex-wrap gap-4 font-mono">
           <div className="flex gap-4">
             <span>Started: {new Date(report.startedAt).toLocaleString()}</span>

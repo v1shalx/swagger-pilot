@@ -1,7 +1,12 @@
 import { RunOrchestratorService } from './run-orchestrator.service';
 
 describe('RunOrchestratorService', () => {
+  // constructor now has 9 deps: swaggerParser, testGenerator, testRunner,
+  // authHandler, chainRunner, idorChecker, regression, reporter, customTestParser
   const service = new RunOrchestratorService(
+    null as any,
+    null as any,
+    null as any,
     null as any,
     null as any,
     null as any,

@@ -3,6 +3,9 @@ import { SwaggerParserService } from '../swagger-parser/swagger-parser.service';
 import { TestGeneratorService, EndpointTestPlan } from '../test-generator/test-generator.service';
 import { TestRunnerService, TestResult } from '../test-runner/test-runner.service';
 import { AuthHandlerService } from '../test-runner/auth-handler.service';
+import { ChainRunnerService } from '../test-runner/chain-runner.service';
+import { IdorCheckerService } from '../test-runner/idor-checker.service';
+import { RegressionService } from '../reporter/regression.service';
 import { ReporterService, TestReport } from '../reporter/reporter.service';
 import { CustomTestParserService } from '../custom-test-parser/custom-test-parser.service';
 import { RunTestsDto, AuthType } from '../swagger-parser/swagger-parser.dto';
@@ -28,6 +31,9 @@ export class RunOrchestratorService {
     private readonly testGenerator: TestGeneratorService,
     private readonly testRunner: TestRunnerService,
     private readonly authHandler: AuthHandlerService,
+    private readonly chainRunner: ChainRunnerService,
+    private readonly idorChecker: IdorCheckerService,
+    private readonly regression: RegressionService,
     private readonly reporter: ReporterService,
     private readonly customTestParser: CustomTestParserService,
   ) {}
@@ -66,6 +72,14 @@ export class RunOrchestratorService {
 
     const baseUrl = dto.baseUrl || spec.baseUrl;
 
+    // Filter endpoints by selectedEndpoints if provided
+    if (dto.selectedEndpoints && dto.selectedEndpoints.length > 0) {
+      const selected = new Set(dto.selectedEndpoints.map((s) => s.trim().toUpperCase()));
+      spec.endpoints = spec.endpoints.filter((ep) =>
+        selected.has(`${ep.method.toUpperCase()} ${ep.path}`),
+      );
+    }
+
     callbacks.onStatus?.({
       phase: 'parsed',
       message: `Parsed "${spec.title}" — ${spec.endpoints.length} endpoints`,
@@ -75,6 +89,7 @@ export class RunOrchestratorService {
         baseUrl,
         endpointCount: spec.endpoints.length,
         openApiVersion: spec.openApiVersion,
+        allEndpoints: spec.endpoints.map((e) => `${e.method} ${e.path}`),
       },
     });
 
@@ -163,6 +178,46 @@ export class RunOrchestratorService {
       }
     }
 
+    // ── Feature 2: Request Chaining ─────────────────────────────────────────
+    if (dto.runChainTests !== false) {
+      callbacks.onStatus?.({ phase: 'chaining', message: 'Running create→read→delete chain tests...' });
+      const chainResults = await this.chainRunner.runChains(
+        spec.endpoints,
+        baseUrl,
+        dto,
+        authHeaders,
+        authQueryParams,
+        (r) => {
+          allResults.push(r);
+          completedCount++;
+          callbacks.onTestResult?.({ ...r, progress: { completed: completedCount, total: totalTests } });
+        },
+      );
+      if (chainResults.length > 0) {
+        this.logger.log(`Chain tests: ${chainResults.length} step results`);
+      }
+    }
+
+    // ── Feature 3: IDOR Testing ──────────────────────────────────────────────
+    if (dto.runIdorTests && dto.secondAuthType && dto.secondAuthType !== AuthType.NONE) {
+      callbacks.onStatus?.({ phase: 'idor', message: 'Running IDOR / authorization tests...' });
+      const secondAuthHeaders = await this.authHandler.resolveSecondAuthHeaders(dto);
+      const idorResults = await this.idorChecker.runIdorChecks(
+        spec.endpoints,
+        baseUrl,
+        authHeaders,
+        secondAuthHeaders,
+        dto,
+        (r) => {
+          allResults.push(r);
+          callbacks.onTestResult?.({ ...r, progress: { completed: ++completedCount, total: totalTests } });
+        },
+      );
+      if (idorResults.length > 0) {
+        this.logger.log(`IDOR checks: ${idorResults.length} results`);
+      }
+    }
+
     const report = this.reporter.generateReport(
       allResults,
       dto.swaggerUrl,
@@ -172,6 +227,16 @@ export class RunOrchestratorService {
       this.testRunner.wasTokenExpiryDetected(),
       spec.endpoints ?? [],
     );
+
+    // ── Feature 4: Regression Baseline ──────────────────────────────────────
+    if (dto.saveBaseline) {
+      this.regression.saveBaseline(dto.saveBaseline, allResults);
+      this.logger.log(`Baseline saved to ${dto.saveBaseline}`);
+    }
+    if (dto.baselineFile) {
+      const diff = this.regression.compareToBaseline(dto.baselineFile, allResults);
+      (report as any).regressionDiff = diff;
+    }
 
     this.logger.log(`Run complete: ${report.passed}/${report.totalTests} passed (${profile})`);
     return report;
