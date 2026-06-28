@@ -11,7 +11,6 @@
  *  - GatewayModule         → WebSocket gateway (Socket.IO)
  *  - HealthModule          → GET /health for load-balancer probes
  *  - DiagnosticsModule     → rule-based failure analysis
- *  - MonitoringModule      → cron-based API health checks + Slack alerts
  */
 
 import { Module } from '@nestjs/common';
@@ -23,7 +22,6 @@ import { GatewayModule } from './gateway/gateway.module';
 import { RunOrchestratorModule } from './run-orchestrator/run-orchestrator.module';
 import { HealthModule } from './health/health.module';
 import { DiagnosticsModule } from './diagnostics/diagnostics.module';
-import { MonitoringModule } from './monitoring/monitoring.module';
 
 @Module({
   imports: [
@@ -35,7 +33,6 @@ import { MonitoringModule } from './monitoring/monitoring.module';
     GatewayModule,
     HealthModule,
     DiagnosticsModule,
-    MonitoringModule,
   ],
 })
 export class AppModule {}
