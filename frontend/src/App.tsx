@@ -7,7 +7,7 @@ import Sidebar from './components/Sidebar';
 import { RefreshCw, ShieldAlert, Cpu } from 'lucide-react';
 
 export default function App() {
-  const { state, runTests, dryRun, cancelTests, reset, requestAiInsights, requestRootCause } = useSocket();
+  const { state, runTests, cancelTests, reset, requestAiInsights, requestRootCause } = useSocket();
 
   const isRunning = ['connecting', 'parsing', 'parsed', 'generating', 'running'].includes(state.phase);
   const showReport = state.phase === 'complete' && state.report;
@@ -104,8 +104,6 @@ export default function App() {
           ) : (
             <Home
               onRunTests={runTests}
-              onDryRun={dryRun}
-              dryRunResult={state.dryRunResult}
               isRunning={isRunning}
               allEndpoints={state.allEndpoints}
             />

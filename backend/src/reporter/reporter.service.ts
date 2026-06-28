@@ -1,8 +1,22 @@
+/**
+ * @file reporter.service.ts
+ * @description Assembles the final {@link TestReport} from raw {@link TestResult}s.
+ *
+ * Responsibilities:
+ *  1. Aggregate pass / fail / error / skip counts and compute pass rate.
+ *  2. Build per-endpoint and per-category breakdowns for the dashboard charts.
+ *  3. Delegate contract-drift analysis to {@link ContractDriftService}.
+ *  4. Compute spec coverage — endpoints tested vs. endpoints documented.
+ *  5. Compute release readiness (go / warn / no-go) with blocking IDOR escalation.
+ *  6. Attach rule-based failure diagnostics for the top 8 failures.
+ */
+
 import { Injectable } from '@nestjs/common';
 import { TestResult } from '../test-runner/test-runner.service';
 import { ParsedEndpoint } from '../swagger-parser/swagger-parser.dto';
 import { ContractDriftService, ContractDriftReport } from './contract-drift.service';
 import { FailureDiagnosticsService, FailureDiagnostic } from '../diagnostics/failure-diagnostics.service';
+import { FlakinessSummary } from './flakiness.service';
 
 export interface SpecCoverage {
   endpointsTested: number;
@@ -36,8 +50,11 @@ export interface TestReport {
   releaseReadiness?: ReleaseReadiness;
   specCoverage?: SpecCoverage;
   topFailureInsights?: { testKey: string; diagnostic: FailureDiagnostic }[];
-  /** @deprecated use specCoverage */
-  estimatedManualHoursSaved?: number;
+  /**
+   * Populated when the orchestrator runs a flakiness re-check after the main run.
+   * Only present when at least one failure was re-run.
+   */
+  flakiness?: FlakinessSummary;
 }
 
 export interface ReleaseReadiness {
@@ -70,6 +87,17 @@ export class ReporterService {
     private readonly failureDiagnostics: FailureDiagnosticsService,
   ) {}
 
+  /**
+   * Build the full {@link TestReport} for a completed audit run.
+   *
+   * @param results           - All test results (pass, fail, error, skipped).
+   * @param swaggerUrl        - The spec URL that was audited.
+   * @param baseUrl           - The API host that was tested against.
+   * @param title             - API title from the spec (e.g. "Petstore v3").
+   * @param startedAt         - Timestamp when execution began.
+   * @param tokenExpiryWarning - True when the runner detected a mid-run 401.
+   * @param specEndpoints     - Parsed endpoints from the spec, used for coverage.
+   */
   generateReport(
     results: TestResult[],
     swaggerUrl: string,
@@ -176,6 +204,15 @@ export class ReporterService {
     };
   }
 
+  /**
+   * Compute endpoint and status-code coverage against the OpenAPI spec.
+   *
+   * Only endpoints that appear in the spec are counted — chain/IDOR test calls
+   * target extra paths that inflate the tested set, so we filter them out with
+   * a Set lookup before computing the percentage.
+   *
+   * @returns `undefined` when no spec endpoints were provided (e.g. manual-only run).
+   */
   private computeSpecCoverage(specEndpoints: any[], results: TestResult[]): SpecCoverage | undefined {
     if (specEndpoints.length === 0) return undefined;
 
@@ -184,10 +221,12 @@ export class ReporterService {
         .filter((r) => r.status !== 'SKIPPED')
         .map((r) => `${r.method} ${r.path}`),
     );
-    const endpointsTested = testedKeys.size;
+    // Only count endpoints that are actually in the spec (chain/IDOR tests can exceed spec count)
+    const specKeys = new Set(specEndpoints.map((e) => `${e.method.toUpperCase()} ${e.path}`));
+    const endpointsTested = [...testedKeys].filter((k) => specKeys.has(k)).length;
     const endpointsInSpec = specEndpoints.length;
     const endpointCoverage = endpointsInSpec > 0
-      ? Math.round((endpointsTested / endpointsInSpec) * 100)
+      ? Math.min(100, Math.round((endpointsTested / endpointsInSpec) * 100))
       : 0;
 
     // Count documented status codes vs exercised
@@ -223,6 +262,17 @@ export class ReporterService {
     };
   }
 
+  /**
+   * Determine the release-readiness verdict based on test outcomes.
+   *
+   * Decision matrix:
+   *  - Any IDOR leak → always `no-go` (security vulnerability is blocking).
+   *  - Pass rate ≥ 85% and no drift → `go`.
+   *  - Pass rate ≥ 70% and no critical drift → `warn`.
+   *  - Everything else → `no-go`.
+   *
+   * @param idorLeaks - Count of failed `authorization_leak` tests.
+   */
   private computeReleaseReadiness(
     passRate: number,
     failed: number,

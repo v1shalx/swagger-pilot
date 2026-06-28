@@ -1,18 +1,23 @@
+/**
+ * @file run-orchestrator.service.spec.ts
+ * @description Unit tests for RunOrchestratorService pure methods.
+ * Constructor satisfied with nulls — injected services are never called here.
+ */
 import { RunOrchestratorService } from './run-orchestrator.service';
 
 describe('RunOrchestratorService', () => {
-  // constructor now has 9 deps: swaggerParser, testGenerator, testRunner,
-  // authHandler, chainRunner, idorChecker, regression, reporter, customTestParser
   const service = new RunOrchestratorService(
-    null as any,
-    null as any,
-    null as any,
-    null as any,
-    null as any,
-    null as any,
-    null as any,
-    null as any,
-    null as any,
+    null as any, // SwaggerParserService
+    null as any, // TestGeneratorService
+    null as any, // TestRunnerService
+    null as any, // AuthHandlerService
+    null as any, // ChainRunnerService
+    null as any, // IdorCheckerService
+    null as any, // RegressionService
+    null as any, // ReporterService
+    null as any, // FlakinessService
+    null as any, // SchemaDiffService
+    null as any, // SecurityProbeService
   );
 
   it('filters to smoke categories only', () => {

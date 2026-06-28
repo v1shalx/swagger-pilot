@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  pom.xml — SwaggerPilot Java Test Suite
+  =======================================
+  This Maven project houses the Java-side quality gate for SwaggerPilot:
+
+    * REST-Assured  — fluent HTTP assertions against the live API
+    * TestNG        — test orchestration, parallel execution, XML suites
+    * Selenium      — browser smoke tests via the Page Object Model
+    * Jackson       — JSON serialization / deserialization helpers
+    * Allure        — rich HTML reports compatible with Jenkins pipelines
+
+  Run all tests:   mvn clean test
+  Run smoke only:  mvn clean test -Dgroups=smoke
+  Run API only:    mvn clean test -Dgroups=api
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.swaggerpilot</groupId>
+  <artifactId>java-tests</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+
+  <name>SwaggerPilot Java Test Suite</name>
+  <description>
+    REST-Assured API tests + Selenium POM smoke tests for SwaggerPilot.
+    Designed to run in Jenkins CI as a parallel quality gate.
+  </description>
+
+  <!-- ── Dependency versions — centralise here, not inline ─────────────── -->
+  <properties>
+    <java.version>17</java.version>
+    <maven.compiler.source>${java.version}</maven.compiler.source>
+    <maven.compiler.target>${java.version}</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!-- Test libraries -->
+    <testng.version>7.9.0</testng.version>
+    <rest-assured.version>5.4.0</rest-assured.version>
+    <selenium.version>4.18.1</selenium.version>
+    <jackson.version>2.17.0</jackson.version>
+    <allure.version>2.26.0</allure.version>
+    <webdrivermanager.version>5.8.0</webdrivermanager.version>
+    <slf4j.version>2.0.13</slf4j.version>
+  </properties>
+
+  <dependencies>
+
+    <!-- ── HTTP / API testing ─────────────────────────────────────────── -->
+    <dependency>
+      <groupId>io.rest-assured</groupId>
+      <artifactId>rest-assured</artifactId>
+      <version>${rest-assured.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- JSON schema validation for REST-Assured -->
+    <dependency>
+      <groupId>io.rest-assured</groupId>
+      <artifactId>json-schema-validator</artifactId>
+      <version>${rest-assured.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- ── Test framework ────────────────────────────────────────────── -->
+    <dependency>
+      <groupId>org.testng</groupId>
+      <artifactId>testng</artifactId>
+      <version>${testng.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- ── Browser automation ────────────────────────────────────────── -->
+    <dependency>
+      <groupId>org.seleniumhq.selenium</groupId>
+      <artifactId>selenium-java</artifactId>
+      <version>${selenium.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- Auto-downloads the right ChromeDriver — no manual setup needed -->
+    <dependency>
+      <groupId>io.github.bonigarcia</groupId>
+      <artifactId>webdrivermanager</artifactId>
+      <version>${webdrivermanager.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- ── JSON serialization ─────────────────────────────────────────── -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+
+    <!-- ── Reporting (Allure + TestNG integration) ────────────────────── -->
+    <dependency>
+      <groupId>io.qameta.allure</groupId>
+      <artifactId>allure-testng</artifactId>
+      <version>${allure.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- ── Logging ───────────────────────────────────────────────────── -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>${slf4j.version}</version>
+    </dependency>
+
+  </dependencies>
+
+  <build>
+    <plugins>
+
+      <!-- Compile with Java 17 -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <source>${java.version}</source>
+          <target>${java.version}</target>
+        </configuration>
+      </plugin>
+
+      <!-- Wire TestNG as the Surefire test provider -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
+        <configuration>
+          <!-- Point at the TestNG suite XML so Surefire picks up our groups -->
+          <suiteXmlFiles>
+            <suiteXmlFile>src/test/resources/testng-suite.xml</suiteXmlFile>
+          </suiteXmlFiles>
+          <!-- Thread count controls parallel execution at the method level -->
+          <parallel>methods</parallel>
+          <threadCount>4</threadCount>
+        </configuration>
+      </plugin>
+
+      <!-- Generate Allure HTML report during verify phase -->
+      <plugin>
+        <groupId>io.qameta.allure</groupId>
+        <artifactId>allure-maven</artifactId>
+        <version>2.12.0</version>
+      </plugin>
+
+    </plugins>
+  </build>
+
+</project>

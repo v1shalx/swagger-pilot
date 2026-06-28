@@ -1,3 +1,19 @@
+/**
+ * @file run-orchestrator.service.ts
+ * @description Coordinates the full test-run lifecycle from spec parsing to report assembly.
+ *
+ * Execution order:
+ *  1. Parse the Swagger / OpenAPI spec via {@link SwaggerParserService}
+ *  2. Generate test cases via {@link TestGeneratorService} (rule engine + optional Gemini AI)
+ *  3. Apply the selected run profile (smoke filters to auth + happy-path only)
+ *  4. Execute tests concurrently via {@link TestRunnerService}
+ *  5. Run chain tests (POST → GET → DELETE) via {@link ChainRunnerService}
+ *  6. Run IDOR checks via {@link IdorCheckerService} (if enabled by the user)
+ *  7. Run flakiness re-check on failures via {@link FlakinessService}
+ *  8. Assemble the final {@link TestReport} via {@link ReporterService}
+ *  9. Optionally compare to a regression baseline via {@link RegressionService}
+ */
+
 import { Injectable, Logger } from '@nestjs/common';
 import { SwaggerParserService } from '../swagger-parser/swagger-parser.service';
 import { TestGeneratorService, EndpointTestPlan } from '../test-generator/test-generator.service';
@@ -7,18 +23,25 @@ import { ChainRunnerService } from '../test-runner/chain-runner.service';
 import { IdorCheckerService } from '../test-runner/idor-checker.service';
 import { RegressionService } from '../reporter/regression.service';
 import { ReporterService, TestReport } from '../reporter/reporter.service';
-import { CustomTestParserService } from '../custom-test-parser/custom-test-parser.service';
+import { FlakinessService } from '../reporter/flakiness.service';
+import { SchemaDiffService } from '../reporter/schema-diff.service';
+import { SecurityProbeService } from '../security/security-probe.service';
 import { RunTestsDto, AuthType } from '../swagger-parser/swagger-parser.dto';
 import { GeneratedTest } from '../test-generator/rule-engine.service';
 
 export type RunProfile = 'smoke' | 'full';
 
+/** Categories included in a smoke run — fast sanity check before a full audit. */
 const SMOKE_CATEGORIES = new Set(['auth', 'happy-path']);
 
 export interface RunProgressCallbacks {
+  /** Fires on major phase transitions (parsing, generating, running, etc.). */
   onStatus?: (data: { phase: string; message: string; totalTests?: number; spec?: unknown }) => void;
+  /** Fires for non-fatal advisory messages (e.g. localhost URL detected). */
   onWarning?: (message: string) => void;
+  /** Fires once per completed test so the UI can update live. */
   onTestResult?: (result: TestResult & { progress?: { completed: number; total: number } }) => void;
+  /** Return `false` to abort the run after the current batch finishes. */
   shouldContinue?: () => boolean;
 }
 
@@ -35,9 +58,21 @@ export class RunOrchestratorService {
     private readonly idorChecker: IdorCheckerService,
     private readonly regression: RegressionService,
     private readonly reporter: ReporterService,
-    private readonly customTestParser: CustomTestParserService,
+    private readonly flakiness: FlakinessService,
+    private readonly schemaDiff: SchemaDiffService,
+    private readonly security: SecurityProbeService,
   ) {}
 
+  /**
+   * Filter test plans to include only the categories applicable to the chosen profile.
+   *
+   * - `smoke`  → auth + happy-path only (plus already-skipped tests)
+   * - `full`   → all categories unchanged
+   *
+   * @param plans   - All generated endpoint plans from {@link TestGeneratorService}
+   * @param profile - The run profile selected by the user
+   * @returns Filtered plans (original array reference returned for `full`)
+   */
   applyRunProfile(plans: EndpointTestPlan[], profile?: RunProfile): EndpointTestPlan[] {
     if (profile !== 'smoke') return plans;
     return plans.map((plan) => ({
@@ -48,31 +83,29 @@ export class RunOrchestratorService {
     }));
   }
 
+  /**
+   * Execute a full audit run end-to-end, streaming progress via callbacks.
+   *
+   * The orchestrator intentionally owns no business logic — each major step
+   * is delegated to its respective service. The callbacks let the WebSocket
+   * gateway forward real-time events to the React frontend as they happen.
+   *
+   * @param dto       - Full configuration payload from the frontend
+   * @param callbacks - Optional real-time event hooks for streaming progress
+   * @returns         The fully assembled {@link TestReport}
+   */
   async executeRun(dto: RunTestsDto, callbacks: RunProgressCallbacks = {}): Promise<TestReport> {
     const startedAt = new Date();
     const profile = dto.runProfile ?? 'full';
     const skipAi = profile === 'smoke' || !!dto.skipAiGeneration;
     const concurrency = Math.min(Math.max(dto.maxConcurrent ?? 3, 1), 8);
 
+    // ── Step 1: Parse the OpenAPI / Swagger spec ─────────────────────────────
     callbacks.onStatus?.({ phase: 'parsing', message: 'Fetching and parsing Swagger spec...' });
-
-    let spec: any;
-    if (dto.swaggerUrl === '__manual_only__') {
-      spec = {
-        title: 'Manual Tests',
-        version: '1.0',
-        baseUrl: dto.baseUrl,
-        securitySchemes: {},
-        endpoints: [],
-        openApiVersion: '3.0',
-      };
-    } else {
-      spec = await this.swaggerParser.parseSwaggerUrl(dto.swaggerUrl, dto.baseUrl);
-    }
-
+    const spec = await this.swaggerParser.parseSwaggerUrl(dto.swaggerUrl, dto.baseUrl);
     const baseUrl = dto.baseUrl || spec.baseUrl;
 
-    // Filter endpoints by selectedEndpoints if provided
+    // Narrow to user-selected endpoints only (Feature 1: Endpoint Selector)
     if (dto.selectedEndpoints && dto.selectedEndpoints.length > 0) {
       const selected = new Set(dto.selectedEndpoints.map((s) => s.trim().toUpperCase()));
       spec.endpoints = spec.endpoints.filter((ep) =>
@@ -99,36 +132,24 @@ export class RunOrchestratorService {
       );
     }
 
+    // ── Step 2: Resolve authentication ───────────────────────────────────────
     this.authHandler.clearCache();
     const authHeaders = await this.authHandler.resolveAuthHeaders(dto);
     const authQueryParams = this.authHandler.resolveAuthQueryParams(dto);
     const hasAuth = dto.authType !== AuthType.NONE;
 
+    // ── Step 3: Generate test cases ──────────────────────────────────────────
     callbacks.onStatus?.({
       phase: 'generating',
-      message: profile === 'smoke' ? 'Generating smoke tests (auth + happy path)...' : 'Generating test cases...',
+      message: profile === 'smoke'
+        ? 'Generating smoke tests (auth + happy path)...'
+        : 'Generating test cases...',
     });
 
     let testPlans = await this.testGenerator.generateAllTests(spec, hasAuth, skipAi);
     testPlans = this.applyRunProfile(testPlans, profile);
 
-    const customTests = (dto as RunTestsDto & { customTests?: string; customTestsType?: string }).customTests;
-    const customTestsType = (dto as RunTestsDto & { customTestsType?: 'json' | 'csv' }).customTestsType;
-    if (customTests && customTestsType) {
-      try {
-        const parsed = this.customTestParser.parseFileContent(customTests, customTestsType);
-        testPlans.push({
-          endpoint: 'custom-uploaded',
-          method: 'MIXED',
-          summary: 'Uploaded test cases',
-          tests: parsed,
-          skipped: false,
-        });
-      } catch (err) {
-        callbacks.onWarning?.(`Custom test file error: ${err.message}`);
-      }
-    }
-
+    // ── Step 4: Execute test queue concurrently ───────────────────────────────
     const queue: GeneratedTest[] = [];
     for (const plan of testPlans) {
       for (const test of plan.tests) {
@@ -178,7 +199,7 @@ export class RunOrchestratorService {
       }
     }
 
-    // ── Feature 2: Request Chaining ─────────────────────────────────────────
+    // ── Step 5: Request Chaining (POST → GET → DELETE) ────────────────────────
     if (dto.runChainTests !== false) {
       callbacks.onStatus?.({ phase: 'chaining', message: 'Running create→read→delete chain tests...' });
       const chainResults = await this.chainRunner.runChains(
@@ -198,7 +219,7 @@ export class RunOrchestratorService {
       }
     }
 
-    // ── Feature 3: IDOR Testing ──────────────────────────────────────────────
+    // ── Step 6: IDOR / Authorization Testing ─────────────────────────────────
     if (dto.runIdorTests && dto.secondAuthType && dto.secondAuthType !== AuthType.NONE) {
       callbacks.onStatus?.({ phase: 'idor', message: 'Running IDOR / authorization tests...' });
       const secondAuthHeaders = await this.authHandler.resolveSecondAuthHeaders(dto);
@@ -218,6 +239,46 @@ export class RunOrchestratorService {
       }
     }
 
+    // ── Step 7: JSON Schema Diff ──────────────────────────────────────────────
+    // Annotate each result with a structural diff of its response body vs the
+    // OpenAPI schema. Mutates results in-place; results with no matching schema
+    // are left unchanged.
+    this.schemaDiff.annotateResults(allResults, spec.endpoints ?? []);
+
+    // Re-run the first 10 failures up to 5 times each to score non-determinism.
+    // Uses the same runner + auth context so results are directly comparable.
+    const failedResults = allResults.filter(
+      (r) => r.status === 'FAIL' || r.status === 'ERROR',
+    );
+
+    const flakinessSummary = failedResults.length > 0
+      ? await this.flakiness.analyzeFlakiness(failedResults, async (original) => {
+          let rerunResult: TestResult | null = null;
+          const testAsGenerated: GeneratedTest = {
+            testName:       original.testName,
+            method:         original.method as any,
+            path:           original.path,
+            headers:        (original as any).requestHeaders ?? {},
+            queryParams:    (original as any).queryParams ?? {},
+            body:           (original as any).requestBody ?? null,
+            expectedStatus: Array.isArray(original.expected) ? original.expected : [original.expected],
+            category:       original.category,
+            description:    original.testName,
+          };
+
+          await this.testRunner.runTest(
+            testAsGenerated,
+            baseUrl,
+            dto,
+            authHeaders,
+            authQueryParams,
+            (r) => { rerunResult = r; },
+          );
+          return rerunResult!;
+        })
+      : undefined;
+
+    // ── Step 9: Assemble the final report ────────────────────────────────────
     const report = this.reporter.generateReport(
       allResults,
       dto.swaggerUrl,
@@ -228,7 +289,27 @@ export class RunOrchestratorService {
       spec.endpoints ?? [],
     );
 
-    // ── Feature 4: Regression Baseline ──────────────────────────────────────
+    if (flakinessSummary) {
+      report.flakiness = flakinessSummary;
+    }
+
+    // ── Step 10: OWASP Security Probes ─────────────────────────────────────────
+    if (dto.runSecurityProbes) {
+      callbacks.onStatus?.({
+        phase: 'security',
+        message: 'Running OWASP API Security Top 10 probes...'
+      });
+      const secSummary = await this.security.runProbes(
+        spec.endpoints ?? [],
+        baseUrl,
+        dto,
+        authHeaders,
+        allResults,
+      );
+      (report as any).securityProbes = secSummary;
+    }
+
+    // ── Step 11: Regression Baseline Comparison ───────────────────────────────
     if (dto.saveBaseline) {
       this.regression.saveBaseline(dto.saveBaseline, allResults);
       this.logger.log(`Baseline saved to ${dto.saveBaseline}`);
@@ -242,6 +323,7 @@ export class RunOrchestratorService {
     return report;
   }
 
+  /** Async delay helper for throttling between test batches. */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }

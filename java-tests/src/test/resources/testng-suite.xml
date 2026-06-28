@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
+
+<!--
+  testng-suite.xml — SwaggerPilot Java Test Suite Configuration
+  ==============================================================
+
+  This XML file controls TestNG's execution plan:
+    - Which test classes to include
+    - Parallel execution mode and thread count
+    - Group filters (override via Maven: -Dgroups=smoke)
+
+  CI usage:
+    Full suite:    mvn clean test
+    Smoke only:    mvn clean test -Dgroups=smoke
+    API only:      mvn clean test -Dgroups=api
+    Selenium only: mvn clean test -Dgroups=selenium
+-->
+
+<suite name="SwaggerPilot Java Test Suite" parallel="methods" thread-count="4" verbose="1">
+
+  <!-- ── REST-Assured API tests ───────────────────────────────────────── -->
+  <test name="Petstore API Tests">
+    <groups>
+      <run>
+        <include name="smoke" />
+        <include name="api" />
+        <include name="contract" />
+        <include name="boundary" />
+        <include name="crud" />
+        <include name="auth" />
+      </run>
+    </groups>
+    <classes>
+      <class name="com.swaggerpilot.api.PetstoreApiTest" />
+    </classes>
+  </test>
+
+  <!-- ── Selenium POM browser tests ───────────────────────────────────── -->
+  <!--
+    Selenium tests run in a separate <test> block so they can be excluded
+    cleanly in headless-only environments that have no Chrome installed:
+      mvn clean test -DexcludedGroups=selenium
+  -->
+  <test name="Swagger UI Selenium Smoke Tests">
+    <groups>
+      <run>
+        <include name="smoke" />
+        <include name="selenium" />
+        <include name="contract" />
+      </run>
+    </groups>
+    <classes>
+      <class name="com.swaggerpilot.selenium.SwaggerUiSmokeTest" />
+    </classes>
+  </test>
+
+</suite>

@@ -25,7 +25,40 @@ export interface RunTestsConfig {
   /** Feature 4: regression baseline files */
   saveBaseline?: string;
   baselineFile?: string;
+  /** Run OWASP API Security Top 10 automated probes (adds ~30-60 extra requests). */
+  runSecurityProbes?: boolean;
 }
+
+// ── Schema Diff types ────────────────────────────────────────────────────────
+
+/**
+ * A single structural discrepancy between a response body and the OpenAPI
+ * schema definition for that endpoint + status code.
+ */
+export interface FieldDiff {
+  /** Dot-notation path, e.g. `"user.address.zip"`. */
+  field: string;
+  /**
+   * Category of the discrepancy:
+   *  - `missing`           — required field absent from response
+   *  - `extra`             — field in response not declared in schema
+   *  - `wrong_type`        — type mismatch between schema and actual value
+   *  - `null_unexpected`   — non-nullable field returned as null
+   */
+  change: 'missing' | 'extra' | 'wrong_type' | 'null_unexpected';
+  /** OpenAPI schema type (if applicable). */
+  expected?: string;
+  /** Actual JSON type found in the response (if applicable). */
+  actual?: string;
+}
+
+/** Structural diff summary attached to a {@link TestResult}. */
+export interface SchemaDiff {
+  hasIssues: boolean;
+  diffs: FieldDiff[];
+}
+
+// ── Test result ───────────────────────────────────────────────────────────────
 
 export interface TestResult {
   testName: string;
@@ -45,6 +78,12 @@ export interface TestResult {
   isAiGenerated: boolean;
   timestamp?: string;
   progress?: { completed: number; total: number };
+  /**
+   * Structural diff of the response body vs the OpenAPI schema for this
+   * endpoint + status code. Present only when the spec defines a schema
+   * for the returned status code.
+   */
+  schemaDiff?: SchemaDiff;
 }
 
 export interface FailureDiagnostic {
@@ -106,6 +145,66 @@ export interface RegressionDiff {
   summary: string;
 }
 
+/** Stability verdict for a single test case across repeated runs. */
+export type FlakinessScore = 'STABLE' | 'FLAKY' | 'HIGHLY_FLAKY';
+
+/** Per-test flakiness entry — one entry per re-run candidate. */
+export interface FlakinessEntry {
+  testKey: string;
+  testName: string;
+  method: string;
+  path: string;
+  score: FlakinessScore;
+  /** Boolean per run: true = PASS, false = FAIL/ERROR. */
+  runResults: boolean[];
+  passCount: number;
+  summary: string;
+}
+
+/** Aggregated flakiness report attached to {@link TestReport}. */
+export interface FlakinessSummary {
+  totalAnalyzed: number;
+  stableCount: number;
+  flakyCount: number;
+  highlyFlakyCount: number;
+  entries: FlakinessEntry[];
+}
+
+
+// ── OWASP Security Probe types ───────────────────────────────────────────────
+
+export type SecuritySeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+/**
+ * One OWASP-mapped finding from the security probe scan.
+ * `passed: true` means the probe ran but found no issue.
+ */
+export interface SecurityFinding {
+  id: string;
+  probeType: 'injection' | 'mass-assignment' | 'rate-limiting' | 'cors' | 'security-headers' | 'verbose-errors';
+  endpoint: string;
+  severity: SecuritySeverity;
+  title: string;
+  detail: string;
+  evidence?: string;
+  recommendation: string;
+  owaspCategory: string;
+  passed: boolean;
+}
+
+/** Aggregated OWASP scan result attached to {@link TestReport}. */
+export interface SecuritySummary {
+  totalProbes: number;
+  vulnerabilities: number;
+  criticalCount: number;
+  highCount: number;
+  mediumCount: number;
+  /** 0-100 composite security score — higher is more secure. */
+  score: number;
+  findings: SecurityFinding[];
+  scannedAt: string;
+}
+
 export interface TestReport {
   title: string;
   swaggerUrl: string;
@@ -129,8 +228,10 @@ export interface TestReport {
   specCoverage?: SpecCoverage;
   regressionDiff?: RegressionDiff;
   topFailureInsights?: { testKey: string; diagnostic: FailureDiagnostic }[];
-  /** @deprecated */
-  estimatedManualHoursSaved?: number;
+  /** Populated when failures were re-run to detect non-deterministic behaviour. */
+  flakiness?: FlakinessSummary;
+  /** Populated when OWASP security probes were run (opt-in). */
+  securityProbes?: SecuritySummary;
 }
 
 export interface EndpointSummary {
@@ -148,20 +249,6 @@ export interface CategorySummary {
   total: number;
   passed: number;
   failed: number;
-}
-
-export interface DryRunResult {
-  title: string;
-  baseUrl: string;
-  endpointCount: number;
-  totalTests: number;
-  aiTestCount: number;
-  breakdown: {
-    endpoint: string;
-    testCount: number;
-    skipped: boolean;
-    skipReason?: string;
-  }[];
 }
 
 export const METHOD_COLORS: Record<string, string> = {

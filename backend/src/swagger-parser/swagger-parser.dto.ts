@@ -104,6 +104,13 @@ export class RunTestsDto {
   @IsOptional()
   runChainTests?: boolean;
 
+  /**
+   * Run OWASP API Security Top 10 automated probes after the main test suite.
+   * Adds ~30-60 extra HTTP requests against the target API.
+   */
+  @IsOptional()
+  runSecurityProbes?: boolean;
+
   /** Save baseline to this file path (CLI) */
   @IsOptional()
   @IsString()

@@ -1,0 +1,139 @@
+/**
+ * Jenkinsfile — SwaggerPilot Java Test Suite CI Pipeline
+ * =======================================================
+ *
+ * This declarative pipeline runs the full Java quality gate on every push
+ * to the main branch and on every pull-request merge. It:
+ *
+ *   1. Checks out source code
+ *   2. Sets the target API URL from a Jenkins credential (or defaults to Petstore)
+ *   3. Runs the Maven test suite (REST-Assured + Selenium)
+ *   4. Publishes Allure HTML results as a build artifact
+ *   5. Archives the Surefire XML reports for test-trend graphs
+ *   6. Marks the build UNSTABLE (not FAILED) if tests fail — so the report
+ *      is always accessible, not discarded by a failed stage
+ *
+ * Prerequisites on the Jenkins agent:
+ *   - JDK 17 (configured as "JDK17" in Global Tool Configuration)
+ *   - Maven 3.9+ (configured as "Maven3" in Global Tool Configuration)
+ *   - Google Chrome installed (for headless Selenium tests)
+ *   - Credentials: "api-base-url" (Secret Text) and "api-auth-token" (Secret Text)
+ *     — both optional; defaults are used if absent
+ *
+ * Environment variables exposed to tests:
+ *   API_BASE_URL   → set from Jenkins credentials → falls through to ApiClient defaults
+ *   API_AUTH_TOKEN → optional bearer token for authenticated endpoints
+ */
+
+pipeline {
+
+  agent any
+
+  // ── Tool versions pinned to names configured in Jenkins Global Tools ──────
+  tools {
+    jdk   'JDK17'
+    maven 'Maven3'
+  }
+
+  // ── Build-level environment variables ─────────────────────────────────────
+  environment {
+    // Inject credentials as environment variables; withCredentials is used
+    // for the actual binding below so the values are masked in logs.
+    MAVEN_OPTS = '-Xmx512m -XX:+TieredCompilation -XX:TieredStopAtLevel=1'
+  }
+
+  // ── Pipeline options ───────────────────────────────────────────────────────
+  options {
+    timeout(time: 20, unit: 'MINUTES')         // Fail-safe: hard kill after 20 min
+    disableConcurrentBuilds()                   // One run at a time per branch
+    buildDiscarder(logRotator(numToKeepStr: '20')) // Keep last 20 builds
+    timestamps()                                // Prefix every log line with HH:MM:SS
+  }
+
+  stages {
+
+    // ── Stage 1: Checkout ──────────────────────────────────────────────────
+    stage('Checkout') {
+      steps {
+        echo '📥 Checking out source...'
+        checkout scm
+      }
+    }
+
+    // ── Stage 2: Run tests ─────────────────────────────────────────────────
+    stage('Run Java Test Suite') {
+      steps {
+        dir('java-tests') {
+          // Bind optional credentials — if the Jenkins credentials don't exist
+          // the variables fall back to empty strings, which triggers ApiClient's
+          // env-var defaults (Petstore URL, no auth token).
+          withCredentials([
+            string(credentialsId: 'api-base-url',   variable: 'API_BASE_URL',   defaultValue: ''),
+            string(credentialsId: 'api-auth-token',  variable: 'API_AUTH_TOKEN', defaultValue: ''),
+          ]) {
+            sh '''
+              echo "▶  Running full test suite..."
+              mvn clean test \
+                  -Dapi.base.url="${API_BASE_URL}" \
+                  -Dapi.auth.token="${API_AUTH_TOKEN}" \
+                  --batch-mode \
+                  --no-transfer-progress
+            '''
+          }
+        }
+      }
+      post {
+        // Mark UNSTABLE instead of FAILED so the report stage still runs
+        failure {
+          echo '⚠️  Tests failed — marking build UNSTABLE so reports are published.'
+          unstable('One or more tests failed.')
+        }
+      }
+    }
+
+    // ── Stage 3: Publish reports ───────────────────────────────────────────
+    stage('Publish Reports') {
+      steps {
+        dir('java-tests') {
+          echo '📊 Archiving Surefire XML and generating Allure report...'
+
+          // Archive raw Surefire XMLs — used by Jenkins test-trend charts
+          junit testResults: 'target/surefire-reports/*.xml',
+                allowEmptyResults: true
+
+          // Generate and publish the Allure HTML report
+          sh 'mvn allure:report --batch-mode --no-transfer-progress || true'
+
+          // Publish Allure results as a build artifact directory
+          publishHTML(target: [
+            allowMissing:          true,
+            alwaysLinkToLastBuild: true,
+            keepAll:               true,
+            reportDir:             'target/site/allure-maven-plugin',
+            reportFiles:           'index.html',
+            reportName:            'Allure Test Report',
+          ])
+        }
+      }
+    }
+  }
+
+  // ── Post-pipeline notifications ────────────────────────────────────────────
+  post {
+    success {
+      echo '✅  Pipeline succeeded — all tests passed.'
+    }
+    unstable {
+      echo '⚠️  Pipeline UNSTABLE — some tests failed. Check the Allure report.'
+    }
+    failure {
+      echo '❌  Pipeline FAILED — build or infrastructure error. Check console output.'
+    }
+    always {
+      // Clean workspace to reclaim disk space on shared agents
+      cleanWs(cleanWhenNotBuilt: false,
+              deleteDirs:        true,
+              disableDeferredWipeout: true)
+    }
+  }
+}

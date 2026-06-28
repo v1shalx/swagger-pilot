@@ -1,23 +1,37 @@
+/**
+ * @file Sidebar.tsx
+ * @description Collapsible navigation dock for SwaggerPilot.
+ *
+ * Renders three tabs — Cockpit, Live Console, and Report — and disables
+ * tabs that have no content yet (e.g. Report is disabled until a run finishes).
+ * Also shows a persistent Gemini status indicator so interviewers can see at a
+ * glance whether AI edge-case generation is active.
+ */
+
 import React from 'react';
-import { 
-  Flame, 
-  Sliders, 
-  Terminal, 
-  Activity, 
-  ChevronLeft, 
+import {
+  Flame,
+  Sliders,
+  Terminal,
+  Activity,
+  ChevronLeft,
   ChevronRight,
-  Cpu
+  Cpu,
 } from 'lucide-react';
 import { Phase } from '../hooks/useSocket';
 
 interface SidebarProps {
+  /** Current phase of the audit engine — drives badge states. */
   phase: Phase;
+  /** True once a completed {@link TestReport} is available. */
   hasReport: boolean;
+  /** True once at least one streaming result has arrived. */
   hasLogs: boolean;
   activeTab: 'cockpit' | 'live' | 'report';
   onTabChange: (tab: 'cockpit' | 'live' | 'report') => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  /** Whether the backend has a valid GEMINI_API_KEY — shown in the footer. */
   geminiConfigured: boolean;
 }
 

@@ -38,10 +38,31 @@ export class SwaggerParserService {
     // Validate the fetched content before parsing
     if (typeof rawSpec === 'string') {
       const trimmed = rawSpec.trim();
-      if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html') || trimmed.startsWith('<div')) {
-        throw new Error(`The URL returned HTML content instead of a JSON/YAML OpenAPI specification. Make sure you are using the RAW JSON/YAML spec URL (e.g. /api/docs-json or /swagger.json) and NOT the interactive Swagger UI HTML page.`);
+      if (trimmed.startsWith('<!') || trimmed.startsWith('<html') || trimmed.startsWith('<div') || trimmed.startsWith('<svg')) {
+        // HTML detected — try to auto-discover the real JSON spec URL
+        const jsonSpecUrl = await this.discoverJsonSpecUrl(swaggerUrl, trimmed);
+        if (jsonSpecUrl) {
+          this.logger.log(`Auto-detected JSON spec URL: ${jsonSpecUrl}`);
+          try {
+            const jsonResponse = await axios.get(jsonSpecUrl, {
+              timeout: 15000,
+              headers: { Accept: 'application/json, */*' },
+            });
+            rawSpec = jsonResponse.data;
+            // Update swaggerUrl so base URL extraction uses the correct URL
+            swaggerUrl = jsonSpecUrl;
+          } catch {
+            throw new Error(`Detected Swagger UI at ${swaggerUrl} but could not fetch the JSON spec at ${jsonSpecUrl}. Try pasting the direct spec URL.`);
+          }
+        } else {
+          throw new Error(
+            `The URL returned an HTML page (Swagger UI). Could not auto-detect the JSON spec URL. ` +
+            `Try appending "-json" → e.g. /api/docs-json, or /api-json, or /openapi.json`,
+          );
+        }
       }
-    } else if (typeof rawSpec === 'object' && rawSpec !== null) {
+    }
+    if (typeof rawSpec === 'object' && rawSpec !== null) {
       if (!rawSpec.openapi && !rawSpec.swagger) {
         const keys = Object.keys(rawSpec).slice(0, 10).join(', ');
         throw new Error(`The URL returned a JSON response, but it is not a valid OpenAPI/Swagger specification. It is missing the root "openapi" or "swagger" version field. (Found JSON keys: ${keys})`);
@@ -88,6 +109,62 @@ export class SwaggerParserService {
       endpoints,
       openApiVersion: isOpenApi3 ? '3.0' : '2.0',
     };
+  }
+
+  /**
+   * When a Swagger UI HTML page is returned, try to find the actual JSON spec URL.
+   * Tries: URL extraction from HTML, then common well-known paths.
+   */
+  private async discoverJsonSpecUrl(htmlUrl: string, html: string): Promise<string | null> {
+    const base = new URL(htmlUrl);
+    const origin = base.origin;
+    const fullPath = base.pathname;                           // e.g. /api/docs
+    const parentPath = fullPath.replace(/\/[^/]*$/, '');     // e.g. /api
+
+    this.logger.log(`HTML detected at ${htmlUrl} — trying to auto-discover JSON spec...`);
+
+    // 1. Try to extract spec URL embedded in the Swagger UI HTML
+    const urlMatch = html.match(/url\s*:\s*["']([^"']+)["']/i);
+    if (urlMatch) {
+      const extracted = urlMatch[1];
+      const resolved = extracted.startsWith('http') ? extracted : origin + extracted;
+      this.logger.log(`  Found URL in HTML: ${resolved}`);
+      return resolved;
+    }
+
+    // 2. Try common well-known paths (ordered by likelihood)
+    const candidates = [
+      `${origin}${fullPath}-json`,          // NestJS: /api/docs  → /api/docs-json
+      `${origin}${parentPath}-json`,        // NestJS: /api/docs  → /api-json
+      `${origin}/api-json`,                 // NestJS root default
+      `${origin}/api/docs-json`,            // NestJS explicit docs path
+      `${origin}/openapi.json`,             // FastAPI, generic
+      `${origin}/swagger.json`,             // generic
+      `${origin}/v3/api-docs`,              // Spring Boot 3.x
+      `${origin}/v2/api-docs`,              // Spring Boot 2.x / Springfox
+      `${origin}${parentPath}/openapi.json`,
+      `${origin}${parentPath}/swagger.json`,
+    ];
+
+    for (const candidate of candidates) {
+      try {
+        this.logger.log(`  Trying: ${candidate}`);
+        const res = await axios.get(candidate, {
+          timeout: 5000,
+          headers: { Accept: 'application/json' },
+          validateStatus: (s) => s === 200,
+        });
+        const data = res.data;
+        if (data && typeof data === 'object' && (data.openapi || data.swagger)) {
+          this.logger.log(`  ✓ Found JSON spec at: ${candidate}`);
+          return candidate;
+        }
+      } catch {
+        // not found, try next
+      }
+    }
+
+    return null;
   }
 
   private extractBaseUrl(api: any, swaggerUrl: string, isOpenApi3: boolean): string {

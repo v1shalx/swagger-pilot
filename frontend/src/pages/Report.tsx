@@ -23,6 +23,7 @@ import {
   loadRunHistory,
 } from "../utils/reportHistory";
 import { exportClientPack } from "../utils/exportClientPack";
+import { exportTestCode } from "../utils/exportTestCode";
 import { FailureDiagnostic } from "../types";
 import { 
   Activity, 
@@ -54,6 +55,7 @@ import {
   Briefcase,
   TrendingUp,
   TrendingDown,
+  ShieldCheck,
   Package,
   FileArchive,
   Shield,
@@ -407,7 +409,7 @@ export default function Report({
   rootCauses,
   onRequestRootCause,
 }: ReportProps) {
-  const [activeTab, setActiveTab] = useState<"summary" | "explorer" | "insights" | "regression">("summary");
+  const [activeTab, setActiveTab] = useState<"summary" | "explorer" | "insights" | "regression" | "flakiness" | "security">("summary");
   
   // Test Explorer Filters
   const [explorerSearch, setExplorerSearch] = useState("");
@@ -506,7 +508,7 @@ export default function Report({
     saveReportSnapshot(report);
   }, [report]);
 
-  const hoursSaved = report.estimatedManualHoursSaved ?? estimateHoursSaved(report.totalTests);
+  const hoursSaved = estimateHoursSaved(report.totalTests);
 
   const getInsight = (testKey: string): FailureDiagnostic | undefined =>
     report.topFailureInsights?.find((i) => i.testKey === testKey)?.diagnostic;
@@ -936,6 +938,8 @@ export default function Report({
             { id: "insights", label: "AI Watchdog Audit", icon: Sparkles },
             { id: "explorer", label: `Telemetry Explorer (${report.totalTests})`, icon: FileText },
             ...(report.regressionDiff ? [{ id: "regression", label: `Regression Diff`, icon: GitCompare }] : []),
+            ...(report.flakiness ? [{ id: "flakiness", label: `Flakiness (${report.flakiness.flakyCount + report.flakiness.highlyFlakyCount} flaky)`, icon: TrendingDown }] : []),
+            ...(report.securityProbes ? [{ id: "security", label: `Security (${report.securityProbes.vulnerabilities} issues)`, icon: ShieldCheck }] : []),
           ].map((tab) => {
             const Icon = tab.icon;
             return (
@@ -1428,6 +1432,56 @@ export default function Report({
                         </div>
                       </div>
 
+                      {/* ── Schema Diff ────────────────────────────────── */}
+                      {selectedTest.schemaDiff && (
+                        <div className="bg-[#05070c]/50 border border-white/[0.05] rounded-2xl p-4 space-y-3 shadow-lg">
+                          <div className="flex items-center gap-2 border-b border-white/[0.04] pb-2">
+                            <GitCompare className="h-4 w-4 text-cyan-400" />
+                            <span className="text-[9px] font-bold text-white tracking-widest uppercase font-mono">
+                              Schema Diff
+                            </span>
+                            <span className={`ml-auto text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full font-mono ${selectedTest.schemaDiff.hasIssues ? 'bg-rose-950/60 text-rose-300 border border-rose-800/50' : 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/50'}`}>
+                              {selectedTest.schemaDiff.hasIssues ? `${selectedTest.schemaDiff.diffs.length} issue${selectedTest.schemaDiff.diffs.length !== 1 ? 's' : ''}` : 'contract ok'}
+                            </span>
+                          </div>
+                          {selectedTest.schemaDiff.hasIssues ? (
+                            <div className="font-mono text-[10px] rounded-lg overflow-hidden border border-white/[0.04]">
+                              {/* header row */}
+                              <div className="grid grid-cols-[16px_1fr_80px_80px] gap-x-3 px-3 py-1.5 bg-slate-950/60 text-[8px] uppercase tracking-widest text-slate-500 font-bold border-b border-white/[0.04]">
+                                <span></span>
+                                <span>Field</span>
+                                <span>Expected</span>
+                                <span>Actual</span>
+                              </div>
+                              {selectedTest.schemaDiff.diffs.map((d, i) => {
+                                const cfg: Record<string, { glyph: string; rowCls: string; glyphCls: string }> = {
+                                  missing:          { glyph: '−', rowCls: 'bg-rose-950/20 hover:bg-rose-950/30',    glyphCls: 'text-rose-400' },
+                                  extra:            { glyph: '+', rowCls: 'bg-sky-950/20 hover:bg-sky-950/30',      glyphCls: 'text-sky-400' },
+                                  wrong_type:       { glyph: '~', rowCls: 'bg-amber-950/20 hover:bg-amber-950/30', glyphCls: 'text-amber-400' },
+                                  null_unexpected:  { glyph: '∅', rowCls: 'bg-orange-950/20 hover:bg-orange-950/30', glyphCls: 'text-orange-400' },
+                                };
+                                const { glyph, rowCls, glyphCls } = cfg[d.change] ?? cfg.extra;
+                                return (
+                                  <div key={i} className={`grid grid-cols-[16px_1fr_80px_80px] gap-x-3 px-3 py-1.5 transition-colors ${rowCls} ${i < selectedTest.schemaDiff!.diffs.length - 1 ? 'border-b border-white/[0.03]' : ''}`}>
+                                    <span className={`font-bold select-none ${glyphCls}`}>{glyph}</span>
+                                    <span className="text-slate-200 truncate" title={d.field}>{d.field}</span>
+                                    <span className="text-slate-400 truncate">{d.expected ?? '—'}</span>
+                                    <span className="text-slate-400 truncate">{d.actual ?? d.change === 'missing' ? 'absent' : '—'}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-[10px] text-emerald-400/70 font-mono">
+                              Response body matches the OpenAPI schema contract.
+                            </p>
+                          )}
+                          <p className="text-[8px] text-slate-600 font-mono">
+                            − missing required field &nbsp;·&nbsp; + extra undeclared field &nbsp;·&nbsp; ~ type mismatch &nbsp;·&nbsp; ∅ null on non-nullable
+                          </p>
+                        </div>
+                      )}
+
                       {selectedTestHasFailed && (
                         <div className="bg-[#05070c]/50 border border-white/[0.05] rounded-2xl p-4 space-y-3.5 shadow-lg glow-card-hover">
                           <div className="flex items-center justify-between border-b border-white/[0.04] pb-2">
@@ -1577,19 +1631,234 @@ export default function Report({
           </div>
         )}
 
-        <footer className="mt-6 pt-4 border-t border-white/[0.04] text-[9px] text-slate-500 flex justify-between flex-wrap gap-4 font-mono">
-          <div className="flex gap-4">
-            <span>Started: {new Date(report.startedAt).toLocaleString()}</span>
-            <span>Duration: {durationSec}s</span>
-            <span>Skipped: {report.skipped}</span>
-          </div>
-          <div>
-            <span>Fuzzed Runs: {report.allTests.filter((t) => t.isAiGenerated).length}</span>
-          </div>
-        </footer>
+        {/* ──── TAB 5: FLAKINESS ──── */}
 
+        {/* ──── TAB 5: FLAKINESS ──── */}
+        {activeTab === "flakiness" && report.flakiness && (
+          <div className="space-y-5">
+            <div className="glass-panel rounded-2xl p-5 shadow-lg border border-white/[0.04] bg-[#05070c]/35">
+              <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-white/[0.04]">
+                <TrendingDown className="h-4 w-4 text-amber-400" />
+                <div>
+                  <h3 className="text-xs font-bold text-white uppercase tracking-tight">Flakiness Analysis</h3>
+                  <p className="text-[9px] text-slate-400">Failed tests were re-run 5x to distinguish consistent failures from non-deterministic (flaky) behaviour.</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mb-5">
+                {[
+                  { label: "Stable", value: report.flakiness.stableCount, color: "text-emerald-400", bg: "bg-emerald-950/30 border-emerald-800/40" },
+                  { label: "Flaky", value: report.flakiness.flakyCount, color: "text-amber-400", bg: "bg-amber-950/30 border-amber-800/40" },
+                  { label: "Highly Flaky", value: report.flakiness.highlyFlakyCount, color: "text-rose-400", bg: "bg-rose-950/30 border-rose-800/40" },
+                ].map(({ label, value, color, bg }) => (
+                  <div key={label} className={`rounded-xl p-3 border ${bg} text-center`}>
+                    <div className={`text-2xl font-bold font-mono ${color}`}>{value}</div>
+                    <div className="text-[9px] text-slate-400 uppercase tracking-widest mt-0.5">{label}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2">
+                {report.flakiness.entries.map((entry) => {
+                  const scoreColor = entry.score === "STABLE" ? "text-emerald-400 bg-emerald-950/30 border-emerald-800/40"
+                    : entry.score === "FLAKY" ? "text-amber-400 bg-amber-950/30 border-amber-800/40"
+                    : "text-rose-400 bg-rose-950/30 border-rose-800/40";
+                  return (
+                    <div key={entry.testKey} className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/40 border border-white/[0.04]">
+                      <span className={`text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border font-mono ${scoreColor}`}>{entry.score.replace("_", " ")}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] text-white font-medium truncate">{entry.testName}</p>
+                        <p className="text-[9px] text-slate-500 font-mono">{entry.method} {entry.path}</p>
+                      </div>
+                      <div className="flex gap-0.5">
+                        {entry.runResults.map((passed, i) => (
+                          <div key={i} className={`w-2 h-2 rounded-full ${passed ? "bg-emerald-500" : "bg-rose-500"}`} title={`Run ${i + 1}: ${passed ? "PASS" : "FAIL"}`} />
+                        ))}
+                      </div>
+                      <span className="text-[9px] text-slate-400 font-mono">{entry.passCount}/{entry.runResults.length}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+
+        {/* ──── TAB 6: OWASP SECURITY ──── */}
+        {activeTab === "security" && report.securityProbes && (() => {
+          const sec = report.securityProbes;
+          const scoreColor =
+            sec.score >= 80 ? "text-emerald-400" :
+            sec.score >= 50 ? "text-amber-400"   :
+                              "text-rose-400";
+          const scoreBg =
+            sec.score >= 80 ? "bg-emerald-950/30 border-emerald-800/40" :
+            sec.score >= 50 ? "bg-amber-950/30 border-amber-800/40"     :
+                              "bg-rose-950/30 border-rose-800/40";
+
+          const SEVERITY_META: Record<string, { label: string; color: string; bg: string; dot: string }> = {
+            critical: { label: "Critical", color: "text-rose-300",   bg: "bg-rose-950/40 border-rose-700/40",   dot: "bg-rose-500"   },
+            high:     { label: "High",     color: "text-orange-300", bg: "bg-orange-950/40 border-orange-700/40", dot: "bg-orange-500" },
+            medium:   { label: "Medium",   color: "text-amber-300",  bg: "bg-amber-950/40 border-amber-700/40",  dot: "bg-amber-500"  },
+            low:      { label: "Low",      color: "text-sky-300",    bg: "bg-sky-950/40 border-sky-700/40",      dot: "bg-sky-500"    },
+            info:     { label: "Info",     color: "text-slate-400",  bg: "bg-slate-900/40 border-slate-700/40",  dot: "bg-slate-500"  },
+          };
+
+          const vulnerabilities = sec.findings.filter((f) => !f.passed);
+          const passed          = sec.findings.filter((f) => f.passed);
+
+          return (
+            <div className="space-y-5">
+              {/* Score header */}
+              <div className="glass-panel rounded-2xl p-5 shadow-lg border border-white/[0.04] bg-[#05070c]/35">
+                <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-white/[0.04]">
+                  <ShieldCheck className="h-4 w-4 text-cyan-400" />
+                  <div>
+                    <h3 className="text-xs font-bold text-white uppercase tracking-tight">OWASP API Security Top 10</h3>
+                    <p className="text-[9px] text-slate-400">
+                      Automated probes scanned {sec.totalProbes} checks across injection, mass assignment, CORS, rate-limiting, security headers and verbose error leakage.
+                    </p>
+                  </div>
+                  <div className="ml-auto text-[9px] text-slate-500 font-mono">
+                    {new Date(sec.scannedAt).toLocaleTimeString()}
+                  </div>
+                </div>
+
+                {/* KPI row */}
+                <div className="grid grid-cols-4 gap-3 mb-5">
+                  <div className={`rounded-xl p-3 border ${scoreBg} text-center`}>
+                    <div className={`text-3xl font-bold font-mono ${scoreColor}`}>{sec.score}</div>
+                    <div className="text-[9px] text-slate-400 uppercase tracking-widest mt-0.5">Security Score</div>
+                  </div>
+                  <div className="rounded-xl p-3 border bg-rose-950/30 border-rose-800/40 text-center">
+                    <div className="text-2xl font-bold font-mono text-rose-400">{sec.criticalCount}</div>
+                    <div className="text-[9px] text-slate-400 uppercase tracking-widest mt-0.5">Critical</div>
+                  </div>
+                  <div className="rounded-xl p-3 border bg-orange-950/30 border-orange-800/40 text-center">
+                    <div className="text-2xl font-bold font-mono text-orange-400">{sec.highCount}</div>
+                    <div className="text-[9px] text-slate-400 uppercase tracking-widest mt-0.5">High</div>
+                  </div>
+                  <div className="rounded-xl p-3 border bg-amber-950/30 border-amber-800/40 text-center">
+                    <div className="text-2xl font-bold font-mono text-amber-400">{sec.mediumCount}</div>
+                    <div className="text-[9px] text-slate-400 uppercase tracking-widest mt-0.5">Medium</div>
+                  </div>
+                </div>
+
+                {/* Score explanation bar */}
+                <div className="mb-1 flex justify-between text-[9px] text-slate-500">
+                  <span>0 — At risk</span>
+                  <span>100 — Secure</span>
+                </div>
+                <div className="w-full bg-slate-900 rounded-full h-2">
+                  <div
+                    className={`h-2 rounded-full transition-all ${sec.score >= 80 ? "bg-emerald-500" : sec.score >= 50 ? "bg-amber-500" : "bg-rose-500"}`}
+                    style={{ width: `${sec.score}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Vulnerabilities */}
+              {vulnerabilities.length > 0 && (
+                <div className="glass-panel rounded-2xl p-5 shadow-lg border border-white/[0.04] bg-[#05070c]/35">
+                  <h4 className="text-xs font-bold text-white uppercase tracking-tight mb-3">
+                    Vulnerabilities Found ({vulnerabilities.length})
+                  </h4>
+                  <div className="space-y-3">
+                    {vulnerabilities.map((f) => {
+                      const meta = SEVERITY_META[f.severity] ?? SEVERITY_META.info;
+                      return (
+                        <div key={f.id} className={`rounded-xl p-4 border ${meta.bg}`}>
+                          <div className="flex items-start gap-3">
+                            <div className={`w-2 h-2 rounded-full mt-1 flex-shrink-0 ${meta.dot}`} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap mb-1">
+                                <span className={`text-[10px] font-bold uppercase tracking-widest ${meta.color}`}>
+                                  {meta.label}
+                                </span>
+                                <span className="text-[9px] text-slate-500 font-mono bg-slate-900/60 px-1.5 py-0.5 rounded">
+                                  {f.owaspCategory}
+                                </span>
+                                <span className="text-[9px] text-slate-500 font-mono">{f.endpoint}</span>
+                              </div>
+                              <p className="text-[11px] font-semibold text-white mb-1">{f.title}</p>
+                              <p className="text-[10px] text-slate-300 mb-2">{f.detail}</p>
+                              {f.evidence && (
+                                <pre className="text-[9px] font-mono text-slate-400 bg-slate-950/60 rounded-lg px-3 py-2 overflow-x-auto mb-2 border border-white/[0.04]">{f.evidence}</pre>
+                              )}
+                              <div className="flex items-start gap-1.5">
+                                <span className="text-[9px] text-cyan-400 font-bold flex-shrink-0">Fix:</span>
+                                <span className="text-[9px] text-slate-400">{f.recommendation}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Passed probes */}
+              {passed.length > 0 && (
+                <div className="glass-panel rounded-2xl p-5 shadow-lg border border-white/[0.04] bg-[#05070c]/35">
+                  <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-tight mb-3">
+                    Probes Passed ({passed.length})
+                  </h4>
+                  <div className="grid grid-cols-1 gap-2">
+                    {passed.map((f) => (
+                      <div key={f.id} className="flex items-center gap-3 rounded-xl p-3 bg-emerald-950/20 border border-emerald-800/30">
+                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[10px] text-emerald-300 font-semibold">{f.title}</span>
+                          <span className="text-[9px] text-slate-500 ml-2 font-mono">{f.endpoint}</span>
+                        </div>
+                        <span className="text-[9px] text-slate-500 font-mono bg-slate-900/60 px-1.5 py-0.5 rounded flex-shrink-0">
+                          {f.owaspCategory}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* ──── FOOTER ──── */}
+        <div className="pt-6 pb-10 border-t border-white/[0.04] mt-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="text-[9px] text-slate-600 font-mono space-y-0.5">
+              <p>SwaggerPilot v2 &mdash; Automated OpenAPI Audit Engine</p>
+              <p>Report generated {new Date(report.completedAt).toLocaleString()} &mdash; {report.durationMs}ms</p>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={() => exportToExcel(report)} className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-white/[0.08] text-slate-300 rounded-lg transition-all">
+                <FileArchive className="h-3 w-3" /> Excel
+              </button>
+              <button onClick={() => exportToCsv(report)} className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-white/[0.08] text-slate-300 rounded-lg transition-all">
+                <FileArchive className="h-3 w-3" /> CSV
+              </button>
+              <button onClick={() => exportToJson(report)} className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-white/[0.08] text-slate-300 rounded-lg transition-all">
+                <Package className="h-3 w-3" /> JSON
+              </button>
+              <button onClick={() => exportToPdf(report, 'report-pdf-export')} className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-white/[0.08] text-slate-300 rounded-lg transition-all">
+                <FileArchive className="h-3 w-3" /> PDF
+              </button>
+              <button onClick={() => exportClientPdf(report)} className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-white/[0.08] text-slate-300 rounded-lg transition-all">
+                <Briefcase className="h-3 w-3" /> Client PDF
+              </button>
+              <button onClick={() => exportFailedTestsToPostman(report)} className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-white/[0.08] text-slate-300 rounded-lg transition-all">
+                <Package className="h-3 w-3" /> Postman
+              </button>
+              <button onClick={() => exportTestCode(report)} className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 bg-emerald-900/50 hover:bg-emerald-800/50 border border-emerald-700/40 text-emerald-300 rounded-lg transition-all">
+                <Package className="h-3 w-3" /> Export Java
+              </button>
+              <button onClick={() => exportClientPack(report)} className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 bg-indigo-900/60 hover:bg-indigo-800/60 border border-indigo-700/40 text-indigo-300 rounded-lg transition-all">
+                <Briefcase className="h-3 w-3" /> Client Pack
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
-

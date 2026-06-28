@@ -21,6 +21,12 @@ export interface TestResult {
   responseHeaders?: Record<string, string>;
   isAiGenerated: boolean;
   timestamp?: string;
+  /**
+   * Structural diff of the response body vs the OpenAPI schema for this
+   * endpoint + status code. Populated by {@link SchemaDiffService} after
+   * the run. Absent when no schema is defined in the spec.
+   */
+  schemaDiff?: import('../reporter/schema-diff.service').SchemaDiff;
 }
 
 @Injectable()
@@ -161,17 +167,17 @@ export class TestRunnerService {
     const normalized: Record<string, string> = {};
     for (const [key, value] of Object.entries(headers)) {
       if (value === undefined || value === null) continue;
-      normalized[key] = Array.isArray(value) ? value.join(', ') : String(value);
+      normalized[key] = String(value);
     }
     return normalized;
   }
 
-  resetState() {
-    this.tokenExpiryDetected = false;
-    this.requestCount = 0;
-  }
-
   wasTokenExpiryDetected(): boolean {
     return this.tokenExpiryDetected;
+  }
+
+  resetState(): void {
+    this.tokenExpiryDetected = false;
+    this.requestCount = 0;
   }
 }

@@ -14,7 +14,7 @@ function buildClientReadme(report: TestReport): string {
 ## Summary
 - Tests executed: ${report.totalTests}
 - Passed: ${report.passed} | Failed: ${report.failed} | Errors: ${report.errors}
-- Estimated manual effort replaced: ~${report.estimatedManualHoursSaved ?? '—'} hours
+- Pass rate: ${report.passRate}%
 
 ## OpenAPI contract drift
 ${drift?.items?.length ? drift.items.slice(0, 8).map((i) => `- [${i.severity}] ${i.method} ${i.path}: ${i.message}`).join('\n') : 'No drift detected.'}

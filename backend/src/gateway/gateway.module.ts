@@ -1,21 +1,22 @@
+/**
+ * @file gateway.module.ts
+ * @description NestJS module that wires up the WebSocket gateway.
+ *
+ * The gateway only needs TestGenerator (for Gemini flag check),
+ * RunOrchestrator (for audit execution), and Diagnostics (for root-cause
+ * analysis). All other modules are already imported by RunOrchestratorModule
+ * transitively and do not need to be repeated here.
+ */
+
 import { Module } from '@nestjs/common';
 import { TestEventsGateway } from './test-events.gateway';
-import { SwaggerParserModule } from '../swagger-parser/swagger-parser.module';
 import { TestGeneratorModule } from '../test-generator/test-generator.module';
-import { TestRunnerModule } from '../test-runner/test-runner.module';
-import { ReporterModule } from '../reporter/reporter.module';
-
-import { CustomTestParserModule } from "../custom-test-parser/custom-test-parser.module";
 import { RunOrchestratorModule } from '../run-orchestrator/run-orchestrator.module';
 import { DiagnosticsModule } from '../diagnostics/diagnostics.module';
 
 @Module({
   imports: [
-    SwaggerParserModule,
     TestGeneratorModule,
-    TestRunnerModule,
-    ReporterModule,
-    CustomTestParserModule,
     RunOrchestratorModule,
     DiagnosticsModule,
   ],

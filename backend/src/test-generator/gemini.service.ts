@@ -12,7 +12,38 @@ export class GeminiService {
     return !!this.apiKey;
   }
   private readonly apiUrl =
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+
+
+  /**
+   * POST to Gemini with automatic retry on 429 (rate-limit).
+   * Waits 2s on first retry, 5s on second, then gives up.
+   */
+  private async geminiPost(prompt: string, maxTokens = 2048): Promise<string> {
+    const delays = [2000, 5000];
+    for (let attempt = 0; attempt <= delays.length; attempt++) {
+      try {
+        const response = await axios.post(
+          `${this.apiUrl}?key=${this.apiKey}`,
+          {
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.5, maxOutputTokens: maxTokens },
+          },
+          { timeout: 30000 },
+        );
+        return response.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+      } catch (err: any) {
+        const status = err?.response?.status;
+        if (status === 429 && attempt < delays.length) {
+          this.logger.warn(`Gemini rate-limited (429) — retrying in ${delays[attempt] / 1000}s...`);
+          await new Promise((r) => setTimeout(r, delays[attempt]));
+        } else {
+          throw err;
+        }
+      }
+    }
+    throw new Error('Gemini rate-limit: all retries exhausted');
+  }
 
   async generateEdgeCases(
     endpoint: ParsedEndpoint,
@@ -156,20 +187,14 @@ Provide a high-density, professional QA Executive Summary in Markdown. Do not in
 3. **Actionable Recommendations**: Clear, prioritized recommendations for developers to stabilize the API.`;
 
     try {
-      const response = await axios.post(
-        `${this.apiUrl}?key=${this.apiKey}`,
-        {
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.5,
-            maxOutputTokens: 2048,
-          },
-        },
-        { timeout: 30000 },
-      );
-
-      return response.data?.candidates?.[0]?.content?.parts?.[0]?.text || 'No response from AI.';
-    } catch (err) {
+      const text = await this.geminiPost(prompt, 2048);
+      return text || 'No response from AI.';
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 429) {
+        this.logger.warn('Gemini rate-limited on report analysis — returning friendly message');
+        return '### ⚠️ Rate Limited\nGemini API quota reached. Wait 60 seconds and click **Request AI Insights** again.';
+      }
       this.logger.error(`AI Report Analysis failed: ${err.message}`);
       return `### ⚠️ AI Analysis Failed\nAn error occurred while generating insights: ${err.message}`;
     }
