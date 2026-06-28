@@ -8,6 +8,19 @@ export class AuthHandlerService {
   private cachedToken: string | null = null;
   private cachedSecondToken: string | null = null;
 
+  /**
+   * Resolves the Authorization / API-key headers for the primary user.
+   *
+   * Supported strategies:
+   *  - `bearer`    → `Authorization: Bearer <token>`
+   *  - `apikey`    → custom header or `?apiKey=` query param
+   *  - `basic`     → `Authorization: Basic <base64(user:pass)>`
+   *  - `autologin` → POST to loginUrl, cache returned JWT
+   *  - `none`      → empty object
+   *
+   * @param dto - Run configuration containing auth type and credentials
+   * @returns Header map to merge into every test request
+   */
   async resolveAuthHeaders(dto: RunTestsDto): Promise<Record<string, string>> {
     switch (dto.authType) {
       case AuthType.BEARER:
@@ -34,6 +47,13 @@ export class AuthHandlerService {
     }
   }
 
+  /**
+   * Returns any auth values that must be sent as query parameters instead of headers.
+   * Currently only used for API-key-in-query configuration.
+   *
+   * @param dto - Run configuration
+   * @returns Query param map (may be empty)
+   */
   resolveAuthQueryParams(dto: RunTestsDto): Record<string, string> {
     if (
       dto.authType === AuthType.API_KEY &&
@@ -86,6 +106,13 @@ export class AuthHandlerService {
   }
 
   /** Resolve auth headers for the second identity (for IDOR testing) */
+  /**
+   * Same as {@link resolveAuthHeaders} but for the secondary (User B) identity
+   * used in IDOR / authorisation tests.
+   *
+   * @param dto - Run configuration containing second-user auth credentials
+   * @returns Header map for User B requests
+   */
   async resolveSecondAuthHeaders(dto: RunTestsDto): Promise<Record<string, string>> {
     const secondDto: RunTestsDto = {
       ...dto,

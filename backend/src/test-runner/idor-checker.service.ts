@@ -24,6 +24,24 @@ export interface IdorFinding {
 export class IdorCheckerService {
   private readonly logger = new Logger(IdorCheckerService.name);
 
+  /**
+   * Runs IDOR (Insecure Direct Object Reference) checks across all endpoints.
+   *
+   * Strategy:
+   *  1. User A creates a resource via POST (or uses a known ID)
+   *  2. User B attempts GET, PUT, and DELETE on that resource
+   *  3. If User B receives 200/201/204, an authorisation leak is flagged
+   *
+   * Results are emitted via `onResult` and also returned as an array.
+   *
+   * @param endpoints       - All parsed endpoints from the spec
+   * @param baseUrl         - The API base URL
+   * @param authHeadersA    - Auth headers for User A (resource owner)
+   * @param authHeadersB    - Auth headers for User B (should be denied)
+   * @param dto             - Run configuration
+   * @param onResult        - Live result callback
+   * @returns All IDOR check results
+   */
   async runIdorChecks(
     endpoints: ParsedEndpoint[],
     baseUrl: string,

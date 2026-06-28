@@ -1,6 +1,23 @@
+/**
+ * @file rule-engine.service.ts
+ * @description Deterministic test case generator.
+ *
+ * Applies a fixed set of QA rules to each parsed endpoint to produce
+ * {@link GeneratedTest} objects without any network calls or AI involvement.
+ *
+ * Rules implemented (in order of execution):
+ *  1. Auth tests     — missing token → 401, invalid token → 401
+ *  2. Path params    — non-existent ID, string for numeric, negative, zero
+ *  3. Query params   — missing required parameters → 400
+ *  4. Body tests     — empty body, missing required fields, wrong types
+ *  5. Boundary tests — below minimum, above maximum, short/long strings, bad enum
+ *  6. Format tests   — invalid email/uuid/date/uri values
+ *  7. Happy path     — valid request with all correct values → 2xx
+ */
 import { Injectable, Logger } from '@nestjs/common';
 import { ParsedEndpoint } from '../swagger-parser/swagger-parser.dto';
 
+/** Represents a single generated test case ready for execution. */
 export interface GeneratedTest {
   testName: string;
   method: string;
@@ -19,6 +36,16 @@ export interface GeneratedTest {
 export class RuleEngineService {
   private readonly logger = new Logger(RuleEngineService.name);
 
+  /**
+   * Entry point — generates all test cases for a single endpoint.
+   *
+   * Multipart/file-upload endpoints are returned as a single SKIPPED test
+   * because automated file uploads require binary fixtures.
+   *
+   * @param endpoint - The parsed OpenAPI endpoint definition
+   * @param hasAuth  - Whether the user provided valid auth credentials for this run
+   * @returns Array of generated test cases (may include skipped entries)
+   */
   generateTests(endpoint: ParsedEndpoint, hasAuth: boolean): GeneratedTest[] {
     const tests: GeneratedTest[] = [];
     const isSecured = endpoint.security && endpoint.security.length > 0;
@@ -70,6 +97,17 @@ export class RuleEngineService {
   }
 
   // ─── AUTH TESTS ───────────────────────────────────────────────────────────
+
+  /**
+   * Generates authentication failure tests for secured endpoints.
+   *
+   * Tests:
+   *  - No Authorization header → expects 401 or 403
+   *  - Invalid Bearer token    → expects 401 or 403
+   *
+   * @param endpoint - The secured endpoint to test
+   * @param hasAuth  - Whether valid credentials are available (not used here — we intentionally omit/corrupt them)
+   */
   private generateAuthTests(endpoint: ParsedEndpoint, hasAuth: boolean): GeneratedTest[] {
     const tests: GeneratedTest[] = [];
 
@@ -103,6 +141,21 @@ export class RuleEngineService {
   }
 
   // ─── PATH PARAM TESTS ─────────────────────────────────────────────────────
+
+  /**
+   * Generates path parameter boundary and type tests.
+   *
+   * For integer/number path params (e.g. `{petId}`):
+   *  - Non-existent ID (99999999)       → expects 404
+   *  - String instead of number         → expects 400/422
+   *  - Negative value (-1)              → expects 400/404
+   *  - Zero (0)                         → expects 400/404
+   *
+   * For UUID string path params:
+   *  - Malformed UUID string            → expects 400/404
+   *
+   * @param endpoint - The endpoint with path parameters to test
+   */
   private generatePathParamTests(endpoint: ParsedEndpoint): GeneratedTest[] {
     const tests: GeneratedTest[] = [];
     const pathParams = endpoint.parameters.filter((p) => p.in === 'path');
@@ -183,13 +236,22 @@ export class RuleEngineService {
   }
 
   // ─── QUERY PARAM TESTS ────────────────────────────────────────────────────
+
+  /**
+   * Generates missing required query parameter tests.
+   *
+   * For each query parameter marked `required: true` in the spec, creates a
+   * test that omits only that parameter (keeping all others) and expects 400.
+   *
+   * @param endpoint    - The endpoint definition
+   * @param queryParams - All query parameters parsed from the spec
+   */
   private generateQueryParamTests(endpoint: ParsedEndpoint, queryParams: any[]): GeneratedTest[] {
     const tests: GeneratedTest[] = [];
 
     for (const param of queryParams) {
       if (!param.required) continue;
 
-      // Missing required query param
       const otherParams = queryParams.filter((p) => p.name !== param.name);
       const queryWithoutParam: Record<string, any> = {};
       for (const other of otherParams) {
@@ -213,6 +275,19 @@ export class RuleEngineService {
   }
 
   // ─── BODY TESTS ───────────────────────────────────────────────────────────
+
+  /**
+   * Generates request body validation tests for POST/PUT/PATCH endpoints.
+   *
+   * Tests generated:
+   *  - Empty body `{}`                           → expects 400
+   *  - Each required field omitted one at a time → expects 400
+   *  - Each field with wrong type value          → expects 400
+   *  - Boundary value tests per field            → expects 400
+   *  - Format validation tests per field         → expects 400
+   *
+   * @param endpoint - The endpoint with a request body schema
+   */
   private generateBodyTests(endpoint: ParsedEndpoint): GeneratedTest[] {
     const tests: GeneratedTest[] = [];
     const schema = endpoint.requestBody?.schema;
@@ -274,10 +349,10 @@ export class RuleEngineService {
         });
       }
 
-      // Boundary tests
+      // Boundary tests per field
       tests.push(...this.generateBoundaryTests(endpoint, fieldName, fs, resolvedSchema));
 
-      // Format tests
+      // Format tests per field
       tests.push(...this.generateFormatTests(endpoint, fieldName, fs, resolvedSchema));
     }
 
@@ -285,6 +360,19 @@ export class RuleEngineService {
   }
 
   // ─── BOUNDARY TESTS ───────────────────────────────────────────────────────
+
+  /**
+   * Generates boundary value tests for a single schema field.
+   *
+   * Numeric fields: tests values one below `minimum` and one above `maximum`.
+   * String fields:  tests strings one char shorter than `minLength` and one
+   *                 char longer than `maxLength`, plus invalid enum values.
+   *
+   * @param endpoint    - The parent endpoint (for test name and path building)
+   * @param fieldName   - Name of the field being tested
+   * @param fieldSchema - OpenAPI schema for this field
+   * @param fullSchema  - The complete request body schema (to build valid base body)
+   */
   private generateBoundaryTests(
     endpoint: ParsedEndpoint,
     fieldName: string,
@@ -386,6 +474,23 @@ export class RuleEngineService {
   }
 
   // ─── FORMAT TESTS ─────────────────────────────────────────────────────────
+
+  /**
+   * Generates format validation tests for fields with a declared `format`.
+   *
+   * Supported formats and their invalid test values:
+   *  - `email`     → 'notanemail', 'missing@'
+   *  - `date`      → 'notadate', '2024-13-45'
+   *  - `date-time` → 'notadatetime', '2024-13-45T00:00:00Z'
+   *  - `uuid`      → 'not-a-uuid', '12345'
+   *  - `uri`       → 'not a uri', '://missing-scheme'
+   *  - `ipv4`      → '999.999.999.999', '256.0.0.1'
+   *
+   * @param endpoint    - The parent endpoint
+   * @param fieldName   - Name of the field being tested
+   * @param fieldSchema - OpenAPI schema for this field
+   * @param fullSchema  - Full request body schema for building the base body
+   */
   private generateFormatTests(
     endpoint: ParsedEndpoint,
     fieldName: string,
@@ -428,6 +533,16 @@ export class RuleEngineService {
   }
 
   // ─── HAPPY PATH ───────────────────────────────────────────────────────────
+
+  /**
+   * Generates the single happy-path test for an endpoint.
+   *
+   * Uses all sample values, correct types, and all required fields present.
+   * Expected status codes are extracted from the spec's 2xx response definitions.
+   * Falls back to [200, 201, 204] if none are documented.
+   *
+   * @param endpoint - The endpoint to generate a happy-path test for
+   */
   private generateHappyPathTest(endpoint: ParsedEndpoint): GeneratedTest {
     const expectedStatuses = Object.keys(endpoint.responses)
       .map(Number)
@@ -447,6 +562,17 @@ export class RuleEngineService {
   }
 
   // ─── HELPERS ──────────────────────────────────────────────────────────────
+
+  /**
+   * Recursively flattens `allOf`, `oneOf`, and `anyOf` schema compositions
+   * into a single plain object schema with merged `properties` and `required`.
+   *
+   * This is needed because OpenAPI specs often use composition keywords instead
+   * of direct property definitions.
+   *
+   * @param schema - Raw OpenAPI schema (may contain allOf/oneOf/anyOf)
+   * @returns A flat `{ type: 'object', properties, required }` schema
+   */
   private resolveSchemaForTests(schema: any): any {
     if (!schema) return { type: 'object', properties: {}, required: [] };
 
@@ -466,12 +592,24 @@ export class RuleEngineService {
     return schema;
   }
 
+  /**
+   * Builds a valid request body from the endpoint's request body schema.
+   * Returns `undefined` if the endpoint has no body or uses multipart.
+   *
+   * @param endpoint - The endpoint to build a body for
+   */
   private buildValidBody(endpoint: ParsedEndpoint): any {
     if (!endpoint.requestBody) return undefined;
     if (endpoint.requestBody.isMultipart) return undefined;
     return this.buildValidBodyFromSchema(this.resolveSchemaForTests(endpoint.requestBody.schema));
   }
 
+  /**
+   * Constructs a JSON object with sample values for every property in the schema.
+   *
+   * @param schema - A resolved (flat) object schema
+   * @returns Plain object with one sample value per property
+   */
   private buildValidBodyFromSchema(schema: any): any {
     if (!schema || schema.type !== 'object') return {};
     const body: any = {};
@@ -483,17 +621,20 @@ export class RuleEngineService {
     return body;
   }
 
+  /**
+   * Returns a plausible sample value for a given OpenAPI schema.
+   *
+   * Priority: `example` → `default` → `enum[0]` → type-based default.
+   *
+   * @param schema - The field schema to generate a value for
+   * @returns A value that conforms to the schema type and constraints
+   */
   getSampleValue(schema: any): any {
     if (!schema) return 'sample';
 
     if (schema.example !== undefined) return schema.example;
     if (schema.default !== undefined) return schema.default;
     if (schema.enum && schema.enum.length > 0) return schema.enum[0];
-
-    // Handle nullable
-    if (schema.nullable) {
-      // don't return null for sample - use valid value
-    }
 
     switch (schema.type) {
       case 'integer':
@@ -514,15 +655,23 @@ export class RuleEngineService {
     }
   }
 
+  /**
+   * Returns a format-aware sample string for string fields.
+   *
+   * Falls back to a padded `'sample_value'` string that respects
+   * `minLength` and `maxLength` constraints.
+   *
+   * @param schema - A string-type OpenAPI schema
+   */
   private getSampleStringValue(schema: any): string {
     switch (schema.format) {
-      case 'email': return 'test@example.com';
-      case 'date': return '2024-01-15';
+      case 'email':     return 'test@example.com';
+      case 'date':      return '2024-01-15';
       case 'date-time': return '2024-01-15T10:00:00Z';
-      case 'uuid': return '550e8400-e29b-41d4-a716-446655440000';
-      case 'uri': return 'https://example.com';
-      case 'password': return 'Password123!';
-      case 'ipv4': return '192.168.1.1';
+      case 'uuid':      return '550e8400-e29b-41d4-a716-446655440000';
+      case 'uri':       return 'https://example.com';
+      case 'password':  return 'Password123!';
+      case 'ipv4':      return '192.168.1.1';
       default: {
         const min = schema.minLength || 3;
         const max = schema.maxLength || 20;
@@ -532,60 +681,77 @@ export class RuleEngineService {
     }
   }
 
+  /**
+   * Returns a value of the wrong type for a given schema field.
+   * Used to generate type-validation failure tests.
+   *
+   * Returns `undefined` when no meaningful wrong-type value can be produced
+   * (e.g., for plain string fields where any value could be coerced).
+   *
+   * @param schema - The field schema to produce a wrong-type value for
+   */
   private getWrongTypeValue(schema: any): any {
     switch (schema.type) {
       case 'integer':
-      case 'number':
-        return 'not_a_number';
-      case 'boolean':
-        return 'yes_string';
-      case 'array':
-        return 'not_an_array';
-      case 'object':
-        return 'not_an_object';
+      case 'number':  return 'not_a_number';
+      case 'boolean': return 'yes_string';
+      case 'array':   return 'not_an_array';
+      case 'object':  return 'not_an_object';
       case 'string':
         if (schema.format === 'integer') return 12345;
-        return undefined; // hard to give wrong type for string
+        return undefined;
       default:
         return undefined;
     }
   }
 
+  /**
+   * Replaces all `{paramName}` placeholders in the endpoint path with
+   * type-appropriate sample values for every path parameter.
+   *
+   * @param endpoint - The endpoint whose path to populate
+   * @returns Concrete path string, e.g. `/pet/1`
+   */
   private buildPathWithSampleValues(endpoint: ParsedEndpoint): string {
     let path = endpoint.path;
-    const pathParams = endpoint.parameters.filter((p) => p.in === 'path');
-
-    for (const param of pathParams) {
-      const value = this.getSampleValue(param.schema);
-      path = path.replace(`{${param.name}}`, String(value));
+    for (const param of endpoint.parameters.filter((p) => p.in === 'path')) {
+      path = path.replace(`{${param.name}}`, String(this.getSampleValue(param.schema)));
     }
-
     return path;
   }
 
+  /**
+   * Replaces a specific path parameter with the provided value,
+   * filling remaining path parameters with sample values.
+   *
+   * @param endpoint  - The endpoint whose path to populate
+   * @param paramName - The parameter to override
+   * @param value     - The override value (as a string)
+   * @returns Concrete path string with the override applied
+   */
   private buildPathWithValue(endpoint: ParsedEndpoint, paramName: string, value: string): string {
     let path = endpoint.path;
-    const pathParams = endpoint.parameters.filter((p) => p.in === 'path');
-
-    for (const param of pathParams) {
-      if (param.name === paramName) {
-        path = path.replace(`{${param.name}}`, value);
-      } else {
-        path = path.replace(`{${param.name}}`, String(this.getSampleValue(param.schema)));
-      }
+    for (const param of endpoint.parameters.filter((p) => p.in === 'path')) {
+      path = path.replace(
+        `{${param.name}}`,
+        param.name === paramName ? value : String(this.getSampleValue(param.schema)),
+      );
     }
-
     return path;
   }
 
+  /**
+   * Builds a query params object containing only the required query parameters,
+   * each populated with a sample value.
+   *
+   * @param endpoint - The endpoint to extract required query params from
+   * @returns Record of `{ paramName: sampleValue }` for required query params only
+   */
   private buildSampleQueryParams(endpoint: ParsedEndpoint): Record<string, any> {
     const params: Record<string, any> = {};
-    const queryParams = endpoint.parameters.filter((p) => p.in === 'query' && p.required);
-
-    for (const param of queryParams) {
+    for (const param of endpoint.parameters.filter((p) => p.in === 'query' && p.required)) {
       params[param.name] = this.getSampleValue(param.schema);
     }
-
     return params;
   }
 }

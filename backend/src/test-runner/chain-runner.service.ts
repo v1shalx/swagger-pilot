@@ -70,6 +70,21 @@ export class ChainRunnerService {
 
   // ── Chain execution ───────────────────────────────────────────────────────
 
+  /**
+   * Detects POST→GET→DELETE endpoint triplets from the spec and executes
+   * them as linked flows, passing the created resource ID between steps.
+   *
+   * Each chain step result is emitted via `onResult` so the UI can display
+   * them live alongside the main test results.
+   *
+   * @param endpoints      - All parsed endpoints from the spec
+   * @param baseUrl        - The API base URL
+   * @param dto            - Run configuration (auth, delay, etc.)
+   * @param authHeaders    - Pre-resolved auth headers
+   * @param authQueryParams - Pre-resolved auth query params
+   * @param onResult       - Callback fired after each chain step completes
+   * @returns All chain step results
+   */
   async runChains(
     endpoints: ParsedEndpoint[],
     baseUrl: string,
